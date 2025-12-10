@@ -1,0 +1,43 @@
+/* Селектор: Применить стиль к QPushButton ТОЛЬКО внутри виджета с objectName = "menuWindow" */
+QWidget#menuWindow QPushButton {
+    /* Фиксированные размеры для одинаковой ширины и высоты */
+    min-width: 200px;
+    max-width: 200px;
+    min-height: 40px;
+    max-height: 40px;
+
+    /* Отступы, размер шрифта */
+    padding: 5px;
+    font-size: 16px;
+
+    /* Выравнивание текста по центру */
+    text-align: center;
+
+    /* Немного скругленные углы для красоты */
+    border-radius: 5px;
+
+    /* Простой фон */
+    background-color: #f0f0f0;
+    border: 1px solid #c0c0c0;
+}
+
+/* Стиль при наведении курсора */
+QWidget#menuWindow QPushButton:hover {
+    background-color: #e0e0e0;
+}
+
+/* Стиль при нажатии */
+QWidget#menuWindow QPushButton:pressed {
+    background-color: #d0d0d0;
+    padding-top: 7px;
+    padding-bottom: 3px;
+}
+
+/* Опционально: базовый стиль для всех других QPushButton,
+   чтобы они не выглядели совсем "голыми", но были обычными.
+   Если этот блок не нужен, его можно удалить.
+QPushButton {
+    min-height: 30px;
+    font-size: 12px;
+}
+*/
