@@ -59,13 +59,23 @@ void MainWindow::setupUI()
 
 void MainWindow::onSinglePlayerClicked()
 {
-    // Вместо MessageBox открываем окно игры
-    GameWindow *game = new GameWindow();
+    GameWindow *game = new GameWindow(); // Создаем окно игры без родителя, как отдельное окно
 
-    // Закрываем меню (или скрываем this->hide())
-    this->close();
+    // Скрываем меню
+    this->hide();
 
-    // Показываем игру
+    // Когда игра закончится и нажмут кнопку выхода:
+    connect(game, &GameWindow::backToMenu, this, [=]() {
+        this->show();       // Показать меню обратно
+        // game удалится сам при закрытии, если у него стоит Qt::WA_DeleteOnClose
+        // или можно удалить его явно: game->deleteLater();
+    });
+
+    // Также полезно обработать простое закрытие окна (крестик)
+    // чтобы меню вернулось, даже если не доиграли
+    // Для этого можно переопределить closeEvent в GameWindow, но для кнопки достаточно этого.
+
+    game->setAttribute(Qt::WA_DeleteOnClose); // Удалить память при закрытии
     game->show();
 }
 
