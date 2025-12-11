@@ -52,6 +52,7 @@ private:
     void initShips();
     void checkGameStatus();
     void endGame(bool playerWon);
+    void updateTurnVisuals();
 };
 
 #endif // GAMEWINDOW_H

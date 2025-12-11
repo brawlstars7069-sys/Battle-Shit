@@ -10,33 +10,28 @@
 // --- Виджет корабля в магазине ---
 class DraggableShipLabel : public QLabel {
 public:
-    int shipId;
-    int size;
+    int shipId, size;
     DraggableShipLabel(int id, int s, QWidget* p=nullptr) : QLabel(p), shipId(id), size(s) {
         setText(QString("%1-палубный").arg(size));
         setFrameStyle(QFrame::Panel | QFrame::Raised);
         setAlignment(Qt::AlignCenter);
-        // Добавили margin, чтобы выглядело аккуратнее
-        setStyleSheet("background-color: lightgray; margin: 2px; border: 1px solid #888;");
-        setFixedHeight(30);
+        setStyleSheet("background-color: #e0e0e0; border: 1px solid #999; border-radius: 3px; font-weight: bold;");
+        setFixedHeight(35);
     }
 protected:
     void mousePressEvent(QMouseEvent *event) override {
         if (event->button() == Qt::LeftButton) {
             QDrag *drag = new QDrag(this);
             QMimeData *mimeData = new QMimeData();
-
-            // Формат данных: "ID:Orientation" (0 - горизонтально по умолчанию)
             mimeData->setText(QString("%1:%2").arg(shipId).arg(0));
             drag->setMimeData(mimeData);
 
-            // ИЗМЕНЕНИЕ 1: Используем MoveAction, чтобы отследить успешное перемещение
-            Qt::DropAction result = drag->exec(Qt::MoveAction);
+            // Визуализация перетаскивания из магазина
+            QPixmap pixmap = this->grab();
+            drag->setPixmap(pixmap);
+            drag->setHotSpot(event->pos());
 
-            // ИЗМЕНЕНИЕ 2: Если поле приняло корабль (MoveAction), скрываем этот лейбл
-            if (result == Qt::MoveAction) {
-                this->hide();
-            }
+            if (drag->exec(Qt::MoveAction) == Qt::MoveAction) this->hide();
         }
     }
 };
@@ -44,6 +39,7 @@ protected:
 GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false)
 {
     setWindowTitle("Морской Бой");
+    resize(880, 600); // Оптимальный стартовый размер
     initShips();
     setupUI();
 }
@@ -231,6 +227,19 @@ void GameWindow::setupUI() {
     mainLayout->addLayout(rightLayout, 2);  // 40% ширины
 }
 
+void GameWindow::updateTurnVisuals() {
+    if (isGameOver) return;
+    if (isPlayerTurn) {
+        infoLabel->setText("ВАШ ХОД!");
+        enemyBoard->setActive(true); // Выделяем поле, куда НАДО стрелять
+        playerBoard->setActive(false);
+    } else {
+        infoLabel->setText("ХОД ПРОТИВНИКА...");
+        enemyBoard->setActive(false);
+        playerBoard->setActive(true);
+    }
+}
+
 void GameWindow::onStartBattleClicked() {
     // Проверка: все ли корабли на поле?
     for(auto s : playerShips) {
@@ -238,6 +247,7 @@ void GameWindow::onStartBattleClicked() {
             QMessageBox::warning(this, "Внимание", "Сначала расставьте все корабли на поле!");
             return;
         }
+        updateTurnVisuals();
     }
 
     // Расстановка врага
@@ -260,19 +270,14 @@ void GameWindow::onStartBattleClicked() {
 
 void GameWindow::onPlayerBoardClick(int x, int y) {
     if(!isBattleStarted || !isPlayerTurn || isGameOver) return;
-
     int res = enemyBoard->receiveShot(x, y);
-    if (res == -1) return; // Повтор клика
-
+    if (res == -1) return;
     if (res == 0) {
-        infoLabel->setText("Промах!");
         isPlayerTurn = false;
+        updateTurnVisuals();
         QTimer::singleShot(800, this, &GameWindow::enemyTurn);
     } else {
-        // Попал или Убил
-        infoLabel->setText(res == 2 ? "КОРАБЛЬ УНИЧТОЖЕН!" : "ПОПАДАНИЕ!");
         checkGameStatus();
-        // При попадании ход сохраняется, таймер не нужен
     }
 }
 
@@ -310,6 +315,13 @@ void GameWindow::enemyTurn() {
             // Если и случайный выстрел попал в уже обстрелянную клетку,
             // мы продолжим цикл, пока не найдем свободную.
             // Это немного неэффективно, но гарантирует, что выстрел будет сделан.
+        }
+        if (res == 0) {
+            isPlayerTurn = true;
+            updateTurnVisuals();
+        } else {
+            checkGameStatus();
+            if(!isGameOver) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
         }
     }
 

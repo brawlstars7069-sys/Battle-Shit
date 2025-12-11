@@ -10,6 +10,7 @@ BoardWidget::BoardWidget(QWidget *parent)
     : QWidget(parent), isEditable(false), showShips(true)
 {
     setAcceptDrops(true);
+    setMouseTracking(true);
     clearBoard();
 }
 
@@ -33,6 +34,31 @@ void BoardWidget::clearBoard() {
         for(int j=0; j<10; ++j)
             grid[i][j] = Empty;
     update();
+}
+
+void BoardWidget::leaveEvent(QEvent *event) {
+    hoverX = -1;
+    hoverY = -1;
+    update();
+}
+
+void BoardWidget::mouseMoveEvent(QMouseEvent *event) {
+    int minDim = std::min(width(), height());
+    int cellSize = minDim / 10;
+
+    int nx = event->position().toPoint().x() / cellSize;
+    int ny = event->position().toPoint().y() / cellSize;
+
+    if (nx != hoverX || ny != hoverY) {
+        if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10) {
+            hoverX = nx;
+            hoverY = ny;
+        } else {
+            hoverX = -1;
+            hoverY = -1;
+        }
+        update();
+    }
 }
 
 void BoardWidget::setEditable(bool editable) {
@@ -117,15 +143,17 @@ Ship* BoardWidget::getShipAt(int x, int y) {
 
 void BoardWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), Qt::white);
 
-    // Динамически вычисляем размер клетки
     int minDim = std::min(width(), height());
     int cellSize = minDim / 10;
     int boardSize = cellSize * 10;
 
-    // Ограничиваем область рисования доски
-    p.setClipRect(0, 0, boardSize + 1, boardSize + 1);
+    // Подсветка активного поля (легкий фон)
+    if (isActive) {
+        p.fillRect(0, 0, boardSize, boardSize, QColor(0, 150, 255, 15));
+    }
 
     // Сетка
     p.setPen(QPen(QColor(200, 200, 200), 1));
@@ -137,15 +165,12 @@ void BoardWidget::paintEvent(QPaintEvent *) {
     // Корабли
     for (Ship* s : myShips) {
         if (!s->isPlaced()) continue;
-
         if (showShips || s->isDestroyed()) {
             int w = (s->orientation == Orientation::Horizontal) ? s->size * cellSize : cellSize;
             int h = (s->orientation == Orientation::Vertical) ? s->size * cellSize : cellSize;
-
             QColor shipColor = s->isDestroyed() ? QColor(80, 80, 80) : QColor(100, 150, 240);
-
             p.setBrush(shipColor);
-            p.setPen(Qt::black);
+            p.setPen(QPen(Qt::black, 1));
             p.drawRect(s->topLeft.x() * cellSize + 2, s->topLeft.y() * cellSize + 2, w - 4, h - 4);
         }
     }
@@ -155,18 +180,29 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         for(int y=0; y<10; ++y) {
             int cx = x * cellSize;
             int cy = y * cellSize;
-
             if (grid[x][y] == Miss) {
                 p.setBrush(Qt::black);
                 p.drawEllipse(QPoint(cx + cellSize/2, cy + cellSize/2), cellSize/10, cellSize/10);
             } else if (grid[x][y] == Hit) {
                 p.setPen(QPen(Qt::red, cellSize/10 + 1));
-                p.drawLine(cx + cellSize/6, cy + cellSize/6, cx + cellSize - cellSize/6, cy + cellSize - cellSize/6);
-                p.drawLine(cx + cellSize - cellSize/6, cy + cellSize/6, cx + cellSize/6, cy + cellSize - cellSize/6);
-                p.setBrush(Qt::NoBrush);
-                p.drawRect(cx+1, cy+1, cellSize-2, cellSize-2);
+                p.drawLine(cx + cellSize/4, cy + cellSize/4, cx + cellSize - cellSize/4, cy + cellSize - cellSize/4);
+                p.drawLine(cx + cellSize - cellSize/4, cy + cellSize/4, cx + cellSize/4, cy + cellSize - cellSize/4);
             }
         }
+    }
+
+    // Голубая рамочка при наведении (только на активном поле)
+    if (isActive && hoverX != -1 && hoverY != -1) {
+        p.setPen(QPen(QColor(0, 120, 255), 2));
+        p.setBrush(QColor(0, 120, 255, 40));
+        p.drawRect(hoverX * cellSize, hoverY * cellSize, cellSize, cellSize);
+    }
+
+    // Рамка вокруг всего активного поля
+    if (isActive) {
+        p.setPen(QPen(QColor(0, 120, 255), 3));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(0, 0, boardSize, boardSize);
     }
 }
 
@@ -252,48 +288,46 @@ void BoardWidget::dropEvent(QDropEvent *event) {
 void BoardWidget::mousePressEvent(QMouseEvent *event) {
     int minDim = std::min(width(), height());
     int cellSize = minDim / 10;
+    int x = event->pos().x() / cellSize;
+    int y = event->pos().y() / cellSize;
 
-    int x = event->pos().x() / cellSize; // Используем cellSize
-    int y = event->pos().y() / cellSize; // Используем cellSize
-
-    // Проверка границ
     if (x < 0 || x > 9 || y < 0 || y > 9) return;
 
-    // Режим игры (стрельба)
     if (!isEditable) {
-        if (event->button() == Qt::LeftButton) {
-            emit cellClicked(x, y);
-        }
+        if (event->button() == Qt::LeftButton) emit cellClicked(x, y);
         return;
     }
 
-    // Режим редактирования
     Ship* s = getShipAt(x, y);
+    if(s && event->button() == Qt::LeftButton) {
+        QDrag *drag = new QDrag(this);
+        QMimeData *mime = new QMimeData();
+        mime->setText(QString("%1:%2").arg(s->id).arg((int)s->orientation));
+        drag->setMimeData(mime);
 
-    if(s) {
-        if (event->button() == Qt::LeftButton) {
-            // Drag корабля с поля
-            QDrag *drag = new QDrag(this);
-            QMimeData *mime = new QMimeData();
-            // Передаем ID корабля и его текущую ориентацию
-            mime->setText(QString("%1:%2").arg(s->id).arg((int)s->orientation));
-            drag->setMimeData(mime);
+        // Визуализация: создаем иконку корабля, которая следует за курсором
+        int w = (s->orientation == Orientation::Horizontal) ? s->size * cellSize : cellSize;
+        int h = (s->orientation == Orientation::Vertical) ? s->size * cellSize : cellSize;
+        QPixmap pixmap(w, h);
+        pixmap.fill(Qt::transparent);
+        QPainter pixPainter(&pixmap);
+        pixPainter.setBrush(QColor(100, 150, 240, 180));
+        pixPainter.setPen(QPen(Qt::black, 2));
+        pixPainter.drawRect(0, 0, w, h);
+        pixPainter.end();
 
-            drag->exec(Qt::MoveAction);
+        drag->setPixmap(pixmap);
+        drag->setHotSpot(QPoint(cellSize / 2, cellSize / 2));
+
+        drag->exec(Qt::MoveAction);
+    } else if (s && event->button() == Qt::RightButton) {
+        Orientation newO = (s->orientation == Orientation::Horizontal) ? Orientation::Vertical : Orientation::Horizontal;
+        QPoint oldPos = s->topLeft;
+        s->topLeft = QPoint(-1, -1);
+        if (!placeShip(s, oldPos.x(), oldPos.y(), newO)) {
+            s->topLeft = oldPos;
         }
-        else if (event->button() == Qt::RightButton) {
-            // Поворот
-            Orientation newO = (s->orientation == Orientation::Horizontal) ? Orientation::Vertical : Orientation::Horizontal;
-            QPoint oldPos = s->topLeft;
-            Orientation oldOrient = s->orientation;
-
-            s->topLeft = QPoint(-1, -1); // Поднимаем (для проверки canPlace)
-            if (!placeShip(s, oldPos.x(), oldPos.y(), newO)) {
-                // Не вышло повернуть - возвращаем старые параметры
-                s->topLeft = oldPos;
-                s->orientation = oldOrient;
-            }
-        }
+        update();
     }
 }
 

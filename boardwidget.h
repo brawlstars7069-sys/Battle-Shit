@@ -3,7 +3,9 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QPoint>
 #include "ship.h"
+#include <algorithm> // Для std::min
 
 enum CellState { Empty, ShipCell, Miss, Hit };
 
@@ -14,11 +16,16 @@ class BoardWidget : public QWidget
 public:
     explicit BoardWidget(QWidget *parent = nullptr);
 
+    // --- Методы для адаптивного дизайна ---
+    QSize sizeHint() const override;
+    int heightForWidth(int w) const override;
+    void setupSizePolicy(); // Настройка QSizePolicy
+    // -------------------------------------
+
     void setEditable(bool editable);
     void setShips(const QVector<Ship*>& ships);
-
-    // Новое: скрывать или показывать корабли (для поля врага - false)
     void setShowShips(bool show);
+    void setActive(bool active) { isActive = active; update(); }
 
     bool placeShip(Ship* ship, int x, int y, Orientation orient);
     bool autoPlaceShips();
@@ -36,6 +43,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
 
 private:
     bool isEditable;
@@ -43,9 +52,13 @@ private:
     CellState grid[10][10];
     QVector<Ship*> myShips;
 
-    bool canPlace(int x, int y, int size, Orientation orient, Ship* ignoreShip = nullptr);
+    bool canPlace(int x, int y, int size, Orientation orient, Ship* ignoreShip);
     Ship* getShipAt(int x, int y);
-    void markAroundDestroyed(Ship* ship);
+    void markAroundDestroyed(Ship *s);
+
+    bool isActive = false; // Подсветка активного поля
+    int hoverX = -1;       // Координата X под курсором
+    int hoverY = -1;       // Координата Y под курсором
 };
 
 #endif // BOARDWIDGET_H
