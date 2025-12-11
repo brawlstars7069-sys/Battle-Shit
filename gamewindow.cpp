@@ -46,7 +46,6 @@ GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false
     setWindowTitle("Морской Бой");
     initShips();
     setupUI();
-    resize(850, 550);
 }
 
 GameWindow::~GameWindow() {
@@ -149,64 +148,87 @@ void GameWindow::determineNextTargetLine() {
 
 void GameWindow::setupUI() {
     QHBoxLayout *mainLayout = new QHBoxLayout(this);
+    mainLayout->setContentsMargins(20, 20, 20, 20);
+    mainLayout->setSpacing(10);
 
-    // Лево: Игрок
+    // --- ЛЕВАЯ КОЛОНКА (ИГРОК) ---
     QVBoxLayout *leftLayout = new QVBoxLayout();
-    leftLayout->addWidget(new QLabel("Ваш флот"));
+    QLabel *playerTitle = new QLabel("ВАШ ФЛОТ");
+    playerTitle->setAlignment(Qt::AlignCenter);
+    playerTitle->setStyleSheet("font-weight: bold; color: #333;");
+
     playerBoard = new BoardWidget(this);
     playerBoard->setShips(playerShips);
     playerBoard->setEditable(true);
-    playerBoard->setShowShips(true); // Свои видим всегда
-    leftLayout->addWidget(playerBoard);
+    playerBoard->setShowShips(true);
+    playerBoard->setupSizePolicy();
 
-    // Центр: Инфо и Кнопки
-    QVBoxLayout *centerLayout = new QVBoxLayout();
+    // Смещение чуть ниже центра: сверху stretch больше, чем снизу
+    leftLayout->addStretch(3);
+    leftLayout->addWidget(playerTitle);
+    leftLayout->addWidget(playerBoard);
+    leftLayout->addStretch(2); // Меньший коэффициент толкает виджеты вниз
+
+    // --- ЦЕНТРАЛЬНАЯ КОЛОНКА (ИНФО) ---
+    // Создаем фиксированный контейнер, чтобы ширина не менялась от текста
+    QWidget *centerWidget = new QWidget();
+    centerWidget->setFixedWidth(220); // Фиксированная ширина центра
+    QVBoxLayout *centerLayout = new QVBoxLayout(centerWidget);
 
     infoLabel = new QLabel("Расставьте корабли\n(Перетащите их)");
     infoLabel->setAlignment(Qt::AlignCenter);
-    infoLabel->setStyleSheet("font-size: 16px; font-weight: bold;");
+    infoLabel->setWordWrap(true);
+    infoLabel->setMinimumHeight(80); // Чтобы 2-3 строки текста не меняли высоту
+    infoLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #2c3e50;");
 
     shipsSetupPanel = new QWidget();
     QVBoxLayout *shipsLayout = new QVBoxLayout(shipsSetupPanel);
-    shipsLayout->setAlignment(Qt::AlignCenter);
-
-    // Создаем лейблы для ВСЕХ кораблей игрока
     for (Ship* s : playerShips) {
         DraggableShipLabel *shipLabel = new DraggableShipLabel(s->id, s->size);
         shipsLayout->addWidget(shipLabel);
     }
-    shipsLayout->addStretch();
 
     startBattleBtn = new QPushButton("В БОЙ!");
-    startBattleBtn->setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;");
+    startBattleBtn->setMinimumHeight(50);
+    startBattleBtn->setStyleSheet("background-color: #4CAF50; color: white; font-size: 16px; border-radius: 5px;");
     connect(startBattleBtn, &QPushButton::clicked, this, &GameWindow::onStartBattleClicked);
 
-    finishGameBtn = new QPushButton("Закончить игру");
-    finishGameBtn->setStyleSheet("background-color: #f44336; color: white; padding: 10px;");
-    finishGameBtn->hide(); // Скрыта в начале
+    finishGameBtn = new QPushButton("В меню");
+    finishGameBtn->setMinimumHeight(50);
+    finishGameBtn->setStyleSheet("background-color: #f44336; color: white; font-size: 16px; border-radius: 5px;");
+    finishGameBtn->hide();
     connect(finishGameBtn, &QPushButton::clicked, this, &GameWindow::onFinishGameClicked);
 
-    centerLayout->addStretch();
+    centerLayout->addStretch(1);
     centerLayout->addWidget(infoLabel);
     centerLayout->addWidget(shipsSetupPanel);
     centerLayout->addWidget(startBattleBtn);
     centerLayout->addWidget(finishGameBtn);
-    centerLayout->addStretch();
+    centerLayout->addStretch(1);
 
-    // Право: Враг
+    // --- ПРАВАЯ КОЛОНКА (ВРАГ) ---
     QVBoxLayout *rightLayout = new QVBoxLayout();
-    rightLayout->addWidget(new QLabel("Радар противника"));
+    QLabel *enemyTitle = new QLabel("РАДАР ПРОТИВНИКА");
+    enemyTitle->setAlignment(Qt::AlignCenter);
+    enemyTitle->setStyleSheet("font-weight: bold; color: #333;");
+
     enemyBoard = new BoardWidget(this);
     enemyBoard->setShips(enemyShips);
     enemyBoard->setEditable(false);
-    enemyBoard->setShowShips(false); // <--- СКРЫВАЕМ КОРАБЛИ ВРАГА
-    enemyBoard->setEnabled(false);   // Пока не начнем, кликать нельзя
+    enemyBoard->setShowShips(false);
+    enemyBoard->setEnabled(false);
+    enemyBoard->setupSizePolicy();
     connect(enemyBoard, &BoardWidget::cellClicked, this, &GameWindow::onPlayerBoardClick);
-    rightLayout->addWidget(enemyBoard);
 
-    mainLayout->addLayout(leftLayout);
-    mainLayout->addLayout(centerLayout);
-    mainLayout->addLayout(rightLayout);
+    rightLayout->addStretch(3);
+    rightLayout->addWidget(enemyTitle);
+    rightLayout->addWidget(enemyBoard);
+    rightLayout->addStretch(2);
+
+    // Добавляем всё в главный слой с пропорциями
+    mainLayout->addLayout(leftLayout, 2);   // 40% ширины
+    mainLayout->addWidget(centerWidget, 0); // Фиксированно (из-за setFixedWidth)
+    mainLayout->addLayout(rightLayout, 2);  // 40% ширины
 }
 
 void GameWindow::onStartBattleClicked() {
@@ -345,6 +367,10 @@ void GameWindow::endGame(bool playerWon) {
     isGameOver = true;
     isBattleStarted = false;
 
+    // ИЗМЕНЕНИЕ 2: Раскрываем расположение кораблей противника
+    enemyBoard->setShowShips(true);
+    enemyBoard->update(); // Перерисовываем, чтобы показать корабли
+
     enemyBoard->setEnabled(false);
 
     if (playerWon) {
@@ -355,7 +381,7 @@ void GameWindow::endGame(bool playerWon) {
         infoLabel->setStyleSheet("color: red; font-size: 20px; font-weight: bold;");
     }
 
-    finishGameBtn->show(); // Показываем кнопку выхода
+    finishGameBtn->show();
 }
 
 void GameWindow::onFinishGameClicked() {

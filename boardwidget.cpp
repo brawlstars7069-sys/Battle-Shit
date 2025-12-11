@@ -4,13 +4,28 @@
 #include <QDrag>
 #include <QMimeData>
 #include <QRandomGenerator>
+#include <algorithm> // Для std::min
 
 BoardWidget::BoardWidget(QWidget *parent)
     : QWidget(parent), isEditable(false), showShips(true)
 {
-    setFixedSize(301, 301);
     setAcceptDrops(true);
     clearBoard();
+}
+
+QSize BoardWidget::sizeHint() const {
+    // Базовый размер (подсказка для компоновки)
+    return QSize(301, 301);
+}
+
+int BoardWidget::heightForWidth(int w) const {
+    // Высота всегда равна ширине
+    return w;
+}
+
+void BoardWidget::setupSizePolicy() {
+    // Устанавливаем Expanding, чтобы виджет пытался занять всё доступное место в layout
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
 void BoardWidget::clearBoard() {
@@ -46,8 +61,8 @@ bool BoardWidget::canPlace(int x, int y, int size, Orientation orient, Ship* ign
 
     // 2. Проверка пересечений и дистанции (1 клетка)
     for (Ship* other : myShips) {
-        if (other == ignoreShip) continue; // Не проверяем самого себя
-        if (!other->isPlaced()) continue;  // Пропускаем те, что ещё в "магазине"
+        if (other == ignoreShip) continue;
+        if (!other->isPlaced()) continue;
 
         // Координаты другого корабля
         int ox = other->topLeft.x();
@@ -76,7 +91,6 @@ bool BoardWidget::canPlace(int x, int y, int size, Orientation orient, Ship* ign
 }
 
 bool BoardWidget::placeShip(Ship* ship, int x, int y, Orientation orient) {
-    // Передаем ship в canPlace, чтобы игнорировать его старую позицию при проверке новой
     if (canPlace(x, y, ship->size, orient, ship)) {
         ship->topLeft = QPoint(x, y);
         ship->orientation = orient;
@@ -104,13 +118,20 @@ Ship* BoardWidget::getShipAt(int x, int y) {
 void BoardWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.fillRect(rect(), Qt::white);
-    int cellSize = 30;
+
+    // Динамически вычисляем размер клетки
+    int minDim = std::min(width(), height());
+    int cellSize = minDim / 10;
+    int boardSize = cellSize * 10;
+
+    // Ограничиваем область рисования доски
+    p.setClipRect(0, 0, boardSize + 1, boardSize + 1);
 
     // Сетка
     p.setPen(QPen(QColor(200, 200, 200), 1));
     for (int i = 0; i <= 10; ++i) {
-        p.drawLine(i * cellSize, 0, i * cellSize, 300);
-        p.drawLine(0, i * cellSize, 300, i * cellSize);
+        p.drawLine(i * cellSize, 0, i * cellSize, boardSize);
+        p.drawLine(0, i * cellSize, boardSize, i * cellSize);
     }
 
     // Корабли
@@ -137,13 +158,13 @@ void BoardWidget::paintEvent(QPaintEvent *) {
 
             if (grid[x][y] == Miss) {
                 p.setBrush(Qt::black);
-                p.drawEllipse(QPoint(cx + 15, cy + 15), 3, 3);
+                p.drawEllipse(QPoint(cx + cellSize/2, cy + cellSize/2), cellSize/10, cellSize/10);
             } else if (grid[x][y] == Hit) {
-                p.setPen(QPen(Qt::red, 3));
-                p.drawLine(cx + 5, cy + 5, cx + 25, cy + 25);
-                p.drawLine(cx + 25, cy + 5, cx + 5, cy + 25);
+                p.setPen(QPen(Qt::red, cellSize/10 + 1));
+                p.drawLine(cx + cellSize/6, cy + cellSize/6, cx + cellSize - cellSize/6, cy + cellSize - cellSize/6);
+                p.drawLine(cx + cellSize - cellSize/6, cy + cellSize/6, cx + cellSize/6, cy + cellSize - cellSize/6);
                 p.setBrush(Qt::NoBrush);
-                p.drawRect(cx+1, cy+1, 28, 28);
+                p.drawRect(cx+1, cy+1, cellSize-2, cellSize-2);
             }
         }
     }
@@ -190,10 +211,7 @@ void BoardWidget::markAroundDestroyed(Ship *s) {
     }
 }
 
-// --- DRAG & DROP СОБЫТИЯ ---
-
 void BoardWidget::dragEnterEvent(QDragEnterEvent *event) {
-    // ИЗМЕНЕНИЕ: Разрешаем MoveAction. Это важно для "рукопожатия" с магазином.
     if (isEditable && event->mimeData()->hasText()) {
         event->setDropAction(Qt::MoveAction);
         event->accept();
@@ -205,27 +223,26 @@ void BoardWidget::dropEvent(QDropEvent *event) {
     QStringList parts = event->mimeData()->text().split(":");
     if (parts.size() != 2) return;
 
+    int minDim = std::min(width(), height());
+    int cellSize = minDim / 10;
+
     int shipId = parts[0].toInt();
     Orientation orient = static_cast<Orientation>(parts[1].toInt());
-    int x = event->position().toPoint().x() / 30;
-    int y = event->position().toPoint().y() / 30;
+    int x = event->position().toPoint().x() / cellSize; // Используем cellSize
+    int y = event->position().toPoint().y() / cellSize; // Используем cellSize
 
     Ship* targetShip = nullptr;
     for(Ship* s : myShips) { if(s->id == shipId) { targetShip = s; break; } }
 
     if (targetShip) {
         QPoint oldPos = targetShip->topLeft;
-        // Временно "поднимаем" корабль, чтобы он не мешал сам себе при проверке места
         targetShip->topLeft = QPoint(-1, -1);
 
         if (placeShip(targetShip, x, y, orient)) {
-            // ИЗМЕНЕНИЕ: Успех! Ставим действие MoveAction и принимаем событие.
-            // Именно это заставит DraggableShipLabel выполнить код this->hide()
             event->setDropAction(Qt::MoveAction);
             event->accept();
             emit shipPlaced();
         } else {
-            // Неудачная попытка - возвращаем как было
             targetShip->topLeft = oldPos;
             event->ignore();
         }
@@ -233,8 +250,14 @@ void BoardWidget::dropEvent(QDropEvent *event) {
 }
 
 void BoardWidget::mousePressEvent(QMouseEvent *event) {
-    int x = event->pos().x() / 30;
-    int y = event->pos().y() / 30;
+    int minDim = std::min(width(), height());
+    int cellSize = minDim / 10;
+
+    int x = event->pos().x() / cellSize; // Используем cellSize
+    int y = event->pos().y() / cellSize; // Используем cellSize
+
+    // Проверка границ
+    if (x < 0 || x > 9 || y < 0 || y > 9) return;
 
     // Режим игры (стрельба)
     if (!isEditable) {
@@ -246,26 +269,27 @@ void BoardWidget::mousePressEvent(QMouseEvent *event) {
 
     // Режим редактирования
     Ship* s = getShipAt(x, y);
+
     if(s) {
         if (event->button() == Qt::LeftButton) {
             // Drag корабля с поля
             QDrag *drag = new QDrag(this);
             QMimeData *mime = new QMimeData();
+            // Передаем ID корабля и его текущую ориентацию
             mime->setText(QString("%1:%2").arg(s->id).arg((int)s->orientation));
             drag->setMimeData(mime);
 
-            // Здесь тоже используем MoveAction, чтобы dropEvent обработал это одинаково
             drag->exec(Qt::MoveAction);
         }
         else if (event->button() == Qt::RightButton) {
-            // Поворот (твоя рабочая логика + небольшая подстраховка с oldPos)
+            // Поворот
             Orientation newO = (s->orientation == Orientation::Horizontal) ? Orientation::Vertical : Orientation::Horizontal;
             QPoint oldPos = s->topLeft;
             Orientation oldOrient = s->orientation;
 
-            s->topLeft = QPoint(-1, -1); // Поднимаем
+            s->topLeft = QPoint(-1, -1); // Поднимаем (для проверки canPlace)
             if (!placeShip(s, oldPos.x(), oldPos.y(), newO)) {
-                // Не вышло повернуть - возвращаем
+                // Не вышло повернуть - возвращаем старые параметры
                 s->topLeft = oldPos;
                 s->orientation = oldOrient;
             }
