@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QLabel>
 #include <QPushButton>
+#include <QList>
+#include <QPoint>
 #include "boardwidget.h"
 
 class GameWindow : public QWidget
@@ -14,22 +16,21 @@ public:
     ~GameWindow();
 
 signals:
-    void backToMenu(); // Сигнал для MainWindow
+    void backToMenu();
 
 private slots:
     void onStartBattleClicked();
     void onPlayerBoardClick(int x, int y);
     void enemyTurn();
-    void onFinishGameClicked(); // Слот для кнопки выхода
+    void onFinishGameClicked();
 
 private:
     BoardWidget *playerBoard;
     BoardWidget *enemyBoard;
     QLabel *infoLabel;
 
-    // Элементы управления
     QPushButton *startBattleBtn;
-    QPushButton *finishGameBtn; // Новая кнопка
+    QPushButton *finishGameBtn;
     QWidget *shipsSetupPanel;
 
     QVector<Ship*> playerShips;
@@ -37,6 +38,15 @@ private:
     bool isPlayerTurn;
     bool isBattleStarted;
     bool isGameOver;
+
+    // --- НОВОЕ: Умная логика бота ---
+    QList<QPoint> enemyTargetQueue;  // Очередь целей для добивания
+    QList<QPoint> shipHitPoints;     // Успешно пораженные клетки текущего корабля
+
+    // Вспомогательные методы
+    void addInitialTargets(int x, int y); // Добавляет 4 соседа (первое попадание)
+    void determineNextTargetLine();       // Уточняет линию огня после второго попадания
+    // ---------------------------------
 
     void setupUI();
     void initShips();

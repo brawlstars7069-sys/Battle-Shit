@@ -34,7 +34,7 @@ void BoardWidget::setShowShips(bool show) {
     update();
 }
 
-// ПРОВЕРКА ПРАВИЛ (Самое важное исправление)
+// ПРОВЕРКА ПРАВИЛ
 bool BoardWidget::canPlace(int x, int y, int size, Orientation orient, Ship* ignoreShip) {
     int dx = (orient == Orientation::Horizontal) ? 1 : 0;
     int dy = (orient == Orientation::Vertical) ? 1 : 0;
@@ -44,25 +44,24 @@ bool BoardWidget::canPlace(int x, int y, int size, Orientation orient, Ship* ign
     int endY = y + (size - 1) * dy;
     if (x < 0 || y < 0 || endX >= 10 || endY >= 10) return false;
 
-    // 2. Проверка пересечений и дистанции
-    // Проходим по всем УЖЕ стоящим кораблям
+    // 2. Проверка пересечений и дистанции (1 клетка)
     for (Ship* other : myShips) {
         if (other == ignoreShip) continue; // Не проверяем самого себя
         if (!other->isPlaced()) continue;  // Пропускаем те, что ещё в "магазине"
 
-        // Вычисляем координаты занятые другим кораблем
+        // Координаты другого корабля
         int ox = other->topLeft.x();
         int oy = other->topLeft.y();
         int odx = (other->orientation == Orientation::Horizontal) ? 1 : 0;
         int ody = (other->orientation == Orientation::Vertical) ? 1 : 0;
 
-        // Строим "Опасную зону" вокруг другого корабля (на 1 клетку шире во все стороны)
+        // "Опасная зона" вокруг другого корабля
         int dangerLeft = ox - 1;
         int dangerTop = oy - 1;
         int dangerRight = ox + (other->size - 1) * odx + 1;
         int dangerBottom = oy + (other->size - 1) * ody + 1;
 
-        // Проверяем, попадает ли НАШ новый корабль в эту опасную зону
+        // Проверяем каждую клетку НАШЕГО нового корабля
         for (int k = 0; k < size; ++k) {
             int cx = x + k * dx;
             int cy = y + k * dy;
@@ -77,7 +76,7 @@ bool BoardWidget::canPlace(int x, int y, int size, Orientation orient, Ship* ign
 }
 
 bool BoardWidget::placeShip(Ship* ship, int x, int y, Orientation orient) {
-    // Передаем ship в canPlace, чтобы игнорировать его текущую позицию при проверке
+    // Передаем ship в canPlace, чтобы игнорировать его старую позицию при проверке новой
     if (canPlace(x, y, ship->size, orient, ship)) {
         ship->topLeft = QPoint(x, y);
         ship->orientation = orient;
@@ -90,9 +89,6 @@ bool BoardWidget::placeShip(Ship* ship, int x, int y, Orientation orient) {
 Ship* BoardWidget::getShipAt(int x, int y) {
     for (Ship* s : myShips) {
         if (!s->isPlaced()) continue;
-
-        int dx = (s->orientation == Orientation::Horizontal) ? 1 : 0;
-        int dy = (s->orientation == Orientation::Vertical) ? 1 : 0;
 
         if (s->orientation == Orientation::Horizontal) {
             if (y == s->topLeft.y() && x >= s->topLeft.x() && x < s->topLeft.x() + s->size)
@@ -110,24 +106,21 @@ void BoardWidget::paintEvent(QPaintEvent *) {
     p.fillRect(rect(), Qt::white);
     int cellSize = 30;
 
-    // 1. Рисуем сетку
+    // Сетка
     p.setPen(QPen(QColor(200, 200, 200), 1));
     for (int i = 0; i <= 10; ++i) {
         p.drawLine(i * cellSize, 0, i * cellSize, 300);
         p.drawLine(0, i * cellSize, 300, i * cellSize);
     }
 
-    // 2. Рисуем корабли
-    // Рисуем, только если это поле игрока (showShips=true) ИЛИ если корабль убит
+    // Корабли
     for (Ship* s : myShips) {
         if (!s->isPlaced()) continue;
 
-        // Логика видимости: Видим свои всегда, Вражеские - только когда убиты
         if (showShips || s->isDestroyed()) {
             int w = (s->orientation == Orientation::Horizontal) ? s->size * cellSize : cellSize;
             int h = (s->orientation == Orientation::Vertical) ? s->size * cellSize : cellSize;
 
-            // Цвет: если убит - темно-серый, если жив (и видим) - синий
             QColor shipColor = s->isDestroyed() ? QColor(80, 80, 80) : QColor(100, 150, 240);
 
             p.setBrush(shipColor);
@@ -136,23 +129,19 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         }
     }
 
-    // 3. Рисуем попадания и промахи (поверх кораблей)
+    // Попадания и промахи
     for(int x=0; x<10; ++x) {
         for(int y=0; y<10; ++y) {
             int cx = x * cellSize;
             int cy = y * cellSize;
 
             if (grid[x][y] == Miss) {
-                // Точка при промахе
                 p.setBrush(Qt::black);
                 p.drawEllipse(QPoint(cx + 15, cy + 15), 3, 3);
             } else if (grid[x][y] == Hit) {
-                // Красный крест (или рамка) при попадании
                 p.setPen(QPen(Qt::red, 3));
                 p.drawLine(cx + 5, cy + 5, cx + 25, cy + 25);
                 p.drawLine(cx + 25, cy + 5, cx + 5, cy + 25);
-
-                // Дополнительно красная рамка
                 p.setBrush(Qt::NoBrush);
                 p.drawRect(cx+1, cy+1, 28, 28);
             }
@@ -162,16 +151,16 @@ void BoardWidget::paintEvent(QPaintEvent *) {
 
 int BoardWidget::receiveShot(int x, int y) {
     if (x<0 || x>9 || y<0 || y>9) return -1;
-    if (grid[x][y] != Empty) return -1; // Уже стреляли
+    if (grid[x][y] != Empty) return -1;
 
     Ship* s = getShipAt(x, y);
     if (s) {
-        grid[x][y] = Hit; // Помечаем попадание на сетке
+        grid[x][y] = Hit;
         s->hits++;
 
         if (s->isDestroyed()) {
             markAroundDestroyed(s);
-            update(); // Перерисовать, чтобы показать убитый корабль
+            update();
             return 2; // Убил
         }
         update();
@@ -187,13 +176,11 @@ void BoardWidget::markAroundDestroyed(Ship *s) {
     int dx = (s->orientation == Orientation::Horizontal) ? 1 : 0;
     int dy = (s->orientation == Orientation::Vertical) ? 1 : 0;
 
-    // Границы корабля
     int x1 = s->topLeft.x();
     int y1 = s->topLeft.y();
     int x2 = x1 + (s->size-1)*dx;
     int y2 = y1 + (s->size-1)*dy;
 
-    // Проходим рамку вокруг
     for (int i = x1 - 1; i <= x2 + 1; ++i) {
         for (int j = y1 - 1; j <= y2 + 1; ++j) {
             if (i >= 0 && i < 10 && j >= 0 && j < 10) {
@@ -203,12 +190,14 @@ void BoardWidget::markAroundDestroyed(Ship *s) {
     }
 }
 
-// ... Остальные методы (dragEnterEvent, dropEvent, mousePressEvent) остаются почти такими же,
-// но dropEvent использует новый placeShip.
-// Копию dropEvent привожу кратко для контекста:
+// --- DRAG & DROP СОБЫТИЯ ---
 
 void BoardWidget::dragEnterEvent(QDragEnterEvent *event) {
-    if (isEditable && event->mimeData()->hasText()) event->acceptProposedAction();
+    // ИЗМЕНЕНИЕ: Разрешаем MoveAction. Это важно для "рукопожатия" с магазином.
+    if (isEditable && event->mimeData()->hasText()) {
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+    }
 }
 
 void BoardWidget::dropEvent(QDropEvent *event) {
@@ -226,13 +215,19 @@ void BoardWidget::dropEvent(QDropEvent *event) {
 
     if (targetShip) {
         QPoint oldPos = targetShip->topLeft;
-        targetShip->topLeft = QPoint(-1, -1); // Временно убираем для проверки
+        // Временно "поднимаем" корабль, чтобы он не мешал сам себе при проверке места
+        targetShip->topLeft = QPoint(-1, -1);
 
         if (placeShip(targetShip, x, y, orient)) {
-            event->acceptProposedAction();
+            // ИЗМЕНЕНИЕ: Успех! Ставим действие MoveAction и принимаем событие.
+            // Именно это заставит DraggableShipLabel выполнить код this->hide()
+            event->setDropAction(Qt::MoveAction);
+            event->accept();
             emit shipPlaced();
         } else {
-            targetShip->topLeft = oldPos; // Возврат
+            // Неудачная попытка - возвращаем как было
+            targetShip->topLeft = oldPos;
+            event->ignore();
         }
     }
 }
@@ -241,30 +236,38 @@ void BoardWidget::mousePressEvent(QMouseEvent *event) {
     int x = event->pos().x() / 30;
     int y = event->pos().y() / 30;
 
-    if (event->button() == Qt::LeftButton) {
-        if (!isEditable) {
-            emit cellClicked(x, y); // Стрельба
-        } else {
-            // Drag logic (без изменений)
-            Ship* s = getShipAt(x, y);
-            if(s) {
-                QDrag *drag = new QDrag(this);
-                QMimeData *mime = new QMimeData();
-                mime->setText(QString("%1:%2").arg(s->id).arg((int)s->orientation));
-                drag->setMimeData(mime);
-                drag->exec(Qt::MoveAction);
-            }
+    // Режим игры (стрельба)
+    if (!isEditable) {
+        if (event->button() == Qt::LeftButton) {
+            emit cellClicked(x, y);
         }
-    } else if (event->button() == Qt::RightButton && isEditable) {
-        // Поворот
-        Ship* s = getShipAt(x, y);
-        if (s) {
+        return;
+    }
+
+    // Режим редактирования
+    Ship* s = getShipAt(x, y);
+    if(s) {
+        if (event->button() == Qt::LeftButton) {
+            // Drag корабля с поля
+            QDrag *drag = new QDrag(this);
+            QMimeData *mime = new QMimeData();
+            mime->setText(QString("%1:%2").arg(s->id).arg((int)s->orientation));
+            drag->setMimeData(mime);
+
+            // Здесь тоже используем MoveAction, чтобы dropEvent обработал это одинаково
+            drag->exec(Qt::MoveAction);
+        }
+        else if (event->button() == Qt::RightButton) {
+            // Поворот (твоя рабочая логика + небольшая подстраховка с oldPos)
             Orientation newO = (s->orientation == Orientation::Horizontal) ? Orientation::Vertical : Orientation::Horizontal;
             QPoint oldPos = s->topLeft;
-            s->topLeft = QPoint(-1, -1); // Убираем для проверки
+            Orientation oldOrient = s->orientation;
+
+            s->topLeft = QPoint(-1, -1); // Поднимаем
             if (!placeShip(s, oldPos.x(), oldPos.y(), newO)) {
-                s->topLeft = oldPos; // Нельзя повернуть - возвращаем
-                s->orientation = (newO == Orientation::Horizontal ? Orientation::Vertical : Orientation::Horizontal);
+                // Не вышло повернуть - возвращаем
+                s->topLeft = oldPos;
+                s->orientation = oldOrient;
             }
         }
     }
@@ -289,7 +292,6 @@ bool BoardWidget::autoPlaceShips() {
             int x = QRandomGenerator::global()->bounded(10);
             int y = QRandomGenerator::global()->bounded(10);
             Orientation o = (QRandomGenerator::global()->bounded(2) == 0) ? Orientation::Horizontal : Orientation::Vertical;
-            // placeShip внутри вызывает canPlace с правилами 1 клетки
             if(placeShip(s, x, y, o)) placed = true;
         }
     }
