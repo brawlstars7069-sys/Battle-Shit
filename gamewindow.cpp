@@ -1,24 +1,38 @@
 #include "gamewindow.h"
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QMessageBox>
 #include <QDrag>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QTimer>
 #include <QRandomGenerator>
+#include <QPainter>
 
-// --- Виджет корабля в магазине ---
+// --- Виджет корабля в магазине (ТЕПЕРЬ ГРАФИЧЕСКИЙ) ---
 class DraggableShipLabel : public QLabel {
 public:
     int shipId, size;
     DraggableShipLabel(int id, int s, QWidget* p=nullptr) : QLabel(p), shipId(id), size(s) {
-        setText(QString("%1-палубный").arg(size));
-        setFrameStyle(QFrame::Panel | QFrame::Raised);
-        setAlignment(Qt::AlignCenter);
-        setStyleSheet("background-color: #e0e0e0; border: 1px solid #999; border-radius: 3px; font-weight: bold;");
-        setFixedHeight(35);
+        // Убираем текст, задаем размер
+        // Ширина зависит от размера корабля (30px на клетку) + небольшой отступ
+        setFixedSize(s * 30 + 10, 40);
+        setCursor(Qt::OpenHandCursor);
+        // Прозрачный фон для виджета, чтобы было видно только корабль
+        setStyleSheet("background-color: transparent;");
     }
 protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // Рисуем корабль горизонтально в центре виджета
+        // Используем статический метод из BoardWidget для единого стиля
+        // Смещаем на (5, 5) чтобы был отступ от края виджета
+        QRect shipRect(5, 5, size * 30, 30);
+        BoardWidget::drawShipShape(p, size, Orientation::Horizontal, shipRect, false, false);
+    }
+
     void mousePressEvent(QMouseEvent *event) override {
         if (event->button() == Qt::LeftButton) {
             QDrag *drag = new QDrag(this);
@@ -26,10 +40,15 @@ protected:
             mimeData->setText(QString("%1:%2").arg(shipId).arg(0));
             drag->setMimeData(mimeData);
 
-            // Визуализация перетаскивания из магазина
-            QPixmap pixmap = this->grab();
+            // Генерируем pixmap корабля для перетаскивания
+            QPixmap pixmap(size * 30, 30);
+            pixmap.fill(Qt::transparent);
+            QPainter p(&pixmap);
+            BoardWidget::drawShipShape(p, size, Orientation::Horizontal, QRect(0,0,size*30,30), false, false);
+            p.end();
+
             drag->setPixmap(pixmap);
-            drag->setHotSpot(event->pos());
+            drag->setHotSpot(QPoint(15, 15)); // Хватаем за "нос"
 
             if (drag->exec(Qt::MoveAction) == Qt::MoveAction) this->hide();
         }
@@ -39,7 +58,7 @@ protected:
 GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false)
 {
     setWindowTitle("Морской Бой");
-    resize(880, 600); // Оптимальный стартовый размер
+    resize(1000, 700);
     initShips();
     setupUI();
 }
@@ -47,6 +66,22 @@ GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false
 GameWindow::~GameWindow() {
     qDeleteAll(playerShips);
     qDeleteAll(enemyShips);
+}
+
+// --- ОТРИСОВКА ФОНА ИГРОВОГО ОКНА ---
+void GameWindow::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    // Морской градиент
+    QLinearGradient gradient(0, 0, 0, height());
+    gradient.setColorAt(0.0, QColor(20, 40, 60));    // Темное небо/море сверху
+    gradient.setColorAt(1.0, QColor(0, 80, 120));    // Глубокое море снизу
+    p.fillRect(rect(), gradient);
+
+    // Сетка радара (декорация на фоне)
+    p.setPen(QPen(QColor(255, 255, 255, 10), 1));
+    for (int i = 0; i < width(); i += 40) p.drawLine(i, 0, i, height());
+    for (int i = 0; i < height(); i += 40) p.drawLine(0, i, width(), i);
 }
 
 void GameWindow::initShips() {
@@ -68,19 +103,13 @@ void GameWindow::initShips() {
 }
 
 void GameWindow::addInitialTargets(int x, int y) {
-    // Возможные сдвиги: влево, вправо, вверх, вниз
     int dx[] = {-1, 1, 0, 0};
     int dy[] = {0, 0, -1, 1};
 
-    // Чтобы бот стрелял более "умно", можно добавлять в начало списка (prepend),
-    // чтобы он добивал текущую область, а не переключался на старые цели.
     for(int i=0; i<4; ++i) {
         int nx = x + dx[i];
         int ny = y + dy[i];
-
-        // Проверяем границы поля (0-9)
         if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10) {
-            // Добавляем в список целей
             enemyTargetQueue.append(QPoint(nx, ny));
         }
     }
@@ -89,69 +118,79 @@ void GameWindow::addInitialTargets(int x, int y) {
 void GameWindow::determineNextTargetLine() {
     if (shipHitPoints.size() < 2) return;
 
-    // Берем первую и последнюю точку для определения ориентации
     QPoint p1 = shipHitPoints.first();
     QPoint p2 = shipHitPoints.last();
 
     bool isHorizontal = (p1.y() == p2.y());
     bool isVertical = (p1.x() == p2.x());
 
-    // Корабль не может быть одновременно H и V (если только это не 1-палубный, но size >= 2)
-    // В теории, если мы попали в две диагональные клетки 4-палубника, то isHorizontal и isVertical будут false.
-    // Однако, бот всегда попадает по соседним клеткам, пока не найдет линию.
-
     if (isHorizontal) {
-        // Убеждаемся, что все точки лежат на одной горизонтали
         int y = p1.y();
-
-        // Находим крайние X координаты среди пораженных частей
         int minX = 10, maxX = -1;
         for(const auto& p : shipHitPoints) {
             if (p.x() < minX) minX = p.x();
             if (p.x() > maxX) maxX = p.x();
         }
-
-        // Очищаем старые, случайные цели и добавляем только те, что по линии
         enemyTargetQueue.clear();
-
-        // Цель слева
         enemyTargetQueue.append(QPoint(minX - 1, y));
-        // Цель справа
         enemyTargetQueue.append(QPoint(maxX + 1, y));
 
     } else if (isVertical) {
-        // Убеждаемся, что все точки лежат на одной вертикали
         int x = p1.x();
-
-        // Находим крайние Y координаты среди пораженных частей
         int minY = 10, maxY = -1;
         for(const auto& p : shipHitPoints) {
             if (p.y() < minY) minY = p.y();
             if (p.y() > maxY) maxY = p.y();
         }
-
-        // Очищаем старые, случайные цели
         enemyTargetQueue.clear();
-
-        // Цель сверху
         enemyTargetQueue.append(QPoint(x, minY - 1));
-        // Цель снизу
         enemyTargetQueue.append(QPoint(x, maxY + 1));
     }
-    // Если корабли имеют форму "Г", то тут будет баг. Но в "Морском бое" они прямые,
-    // поэтому логика isHorizontal / isVertical будет работать, как только найдутся 2 точки по одной линии.
 }
 
 void GameWindow::setupUI() {
-    QHBoxLayout *mainLayout = new QHBoxLayout(this);
-    mainLayout->setContentsMargins(20, 20, 20, 20);
-    mainLayout->setSpacing(10);
+    QVBoxLayout *globalLayout = new QVBoxLayout(this);
+    globalLayout->setContentsMargins(0, 0, 0, 0);
+    globalLayout->setSpacing(0);
 
-    // --- ЛЕВАЯ КОЛОНКА (ИГРОК) ---
+    // Header
+    QWidget *headerWidget = new QWidget(this);
+    headerWidget->setStyleSheet("background-color: rgba(0, 0, 0, 150); border-bottom: 2px solid #555;");
+    headerWidget->setFixedHeight(60);
+
+    QHBoxLayout *headerLayout = new QHBoxLayout(headerWidget);
+    headerLayout->setContentsMargins(20, 0, 20, 0);
+
+    QLabel *gameTitle = new QLabel("Одиночная игра", this);
+    gameTitle->setStyleSheet("color: white; font-weight: bold; font-size: 18px;");
+
+    exitToMenuBtn = new QPushButton("Выход в меню", this);
+    exitToMenuBtn->setCursor(Qt::PointingHandCursor);
+    exitToMenuBtn->setStyleSheet(
+        "QPushButton { background-color: #c0392b; color: white; border-radius: 4px; padding: 6px 15px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #e74c3c; }"
+        );
+    connect(exitToMenuBtn, &QPushButton::clicked, this, &GameWindow::onExitToMenuClicked);
+
+    headerLayout->addWidget(gameTitle);
+    headerLayout->addStretch();
+    headerLayout->addWidget(exitToMenuBtn);
+
+    globalLayout->addWidget(headerWidget);
+
+
+    // Game Content
+    QWidget *gameContentWidget = new QWidget(this);
+    gameContentWidget->setStyleSheet("background: transparent;"); // Прозрачный, чтобы видеть paintEvent окна
+    QHBoxLayout *mainLayout = new QHBoxLayout(gameContentWidget);
+    mainLayout->setContentsMargins(30, 20, 30, 20);
+    mainLayout->setSpacing(20);
+
+    // Player Board
     QVBoxLayout *leftLayout = new QVBoxLayout();
     QLabel *playerTitle = new QLabel("ВАШ ФЛОТ");
     playerTitle->setAlignment(Qt::AlignCenter);
-    playerTitle->setStyleSheet("font-weight: bold; color: #333;");
+    playerTitle->setStyleSheet("font-weight: bold; color: white; font-size: 16px; margin-bottom: 5px; background-color: rgba(0,0,0,100); padding: 5px; border-radius: 5px;");
 
     playerBoard = new BoardWidget(this);
     playerBoard->setShips(playerShips);
@@ -159,111 +198,120 @@ void GameWindow::setupUI() {
     playerBoard->setShowShips(true);
     playerBoard->setupSizePolicy();
 
-    // Смещение чуть ниже центра: сверху stretch больше, чем снизу
-    leftLayout->addStretch(3);
+    leftLayout->addStretch(1);
     leftLayout->addWidget(playerTitle);
     leftLayout->addWidget(playerBoard);
-    leftLayout->addStretch(2); // Меньший коэффициент толкает виджеты вниз
+    leftLayout->addStretch(1);
 
-    // --- ЦЕНТРАЛЬНАЯ КОЛОНКА (ИНФО) ---
-    // Создаем фиксированный контейнер, чтобы ширина не менялась от текста
+    // Center Panel (Shop & Info)
     QWidget *centerWidget = new QWidget();
-    centerWidget->setFixedWidth(220); // Фиксированная ширина центра
+    centerWidget->setFixedWidth(280);
+    centerWidget->setStyleSheet("background-color: rgba(255, 255, 255, 220); border-radius: 10px;"); // Полупрозрачная панель
     QVBoxLayout *centerLayout = new QVBoxLayout(centerWidget);
+    centerLayout->setContentsMargins(15, 15, 15, 15);
 
-    infoLabel = new QLabel("Расставьте корабли\n(Перетащите их)");
+    infoLabel = new QLabel("Перетащите корабли\nна своё поле");
     infoLabel->setAlignment(Qt::AlignCenter);
     infoLabel->setWordWrap(true);
-    infoLabel->setMinimumHeight(80); // Чтобы 2-3 строки текста не меняли высоту
-    infoLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #2c3e50;");
+    infoLabel->setMinimumHeight(60);
+    infoLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 1px solid #ccc; padding-bottom: 10px;");
 
     shipsSetupPanel = new QWidget();
     QVBoxLayout *shipsLayout = new QVBoxLayout(shipsSetupPanel);
+    shipsLayout->setSpacing(5);
+    // Добавляем скролл, если кораблей много, но у нас влезет
     for (Ship* s : playerShips) {
         DraggableShipLabel *shipLabel = new DraggableShipLabel(s->id, s->size);
-        shipsLayout->addWidget(shipLabel);
+        shipsLayout->addWidget(shipLabel, 0, Qt::AlignCenter);
     }
 
     startBattleBtn = new QPushButton("В БОЙ!");
     startBattleBtn->setMinimumHeight(50);
-    startBattleBtn->setStyleSheet("background-color: #4CAF50; color: white; font-size: 16px; border-radius: 5px;");
+    startBattleBtn->setCursor(Qt::PointingHandCursor);
+    startBattleBtn->setStyleSheet("QPushButton { background-color: #27ae60; color: white; font-size: 18px; border-radius: 8px; font-weight: bold; } QPushButton:hover { background-color: #2ecc71; }");
     connect(startBattleBtn, &QPushButton::clicked, this, &GameWindow::onStartBattleClicked);
 
-    finishGameBtn = new QPushButton("В меню");
+    finishGameBtn = new QPushButton("Результат");
     finishGameBtn->setMinimumHeight(50);
-    finishGameBtn->setStyleSheet("background-color: #f44336; color: white; font-size: 16px; border-radius: 5px;");
+    finishGameBtn->setStyleSheet("background-color: #2980b9; color: white; font-size: 16px; border-radius: 8px; font-weight: bold;");
     finishGameBtn->hide();
     connect(finishGameBtn, &QPushButton::clicked, this, &GameWindow::onFinishGameClicked);
 
-    centerLayout->addStretch(1);
     centerLayout->addWidget(infoLabel);
     centerLayout->addWidget(shipsSetupPanel);
+    centerLayout->addStretch(); // Пружина между магазином и кнопкой
     centerLayout->addWidget(startBattleBtn);
     centerLayout->addWidget(finishGameBtn);
-    centerLayout->addStretch(1);
 
-    // --- ПРАВАЯ КОЛОНКА (ВРАГ) ---
+    // Enemy Board
     QVBoxLayout *rightLayout = new QVBoxLayout();
     QLabel *enemyTitle = new QLabel("РАДАР ПРОТИВНИКА");
     enemyTitle->setAlignment(Qt::AlignCenter);
-    enemyTitle->setStyleSheet("font-weight: bold; color: #333;");
+    enemyTitle->setStyleSheet("font-weight: bold; color: white; font-size: 16px; margin-bottom: 5px; background-color: rgba(150,0,0,100); padding: 5px; border-radius: 5px;");
 
     enemyBoard = new BoardWidget(this);
     enemyBoard->setShips(enemyShips);
+    enemyBoard->setEnemy(true); // Включаем темный стиль для врага
     enemyBoard->setEditable(false);
     enemyBoard->setShowShips(false);
     enemyBoard->setEnabled(false);
     enemyBoard->setupSizePolicy();
     connect(enemyBoard, &BoardWidget::cellClicked, this, &GameWindow::onPlayerBoardClick);
 
-    rightLayout->addStretch(3);
+    rightLayout->addStretch(1);
     rightLayout->addWidget(enemyTitle);
     rightLayout->addWidget(enemyBoard);
-    rightLayout->addStretch(2);
+    rightLayout->addStretch(1);
 
-    // Добавляем всё в главный слой с пропорциями
-    mainLayout->addLayout(leftLayout, 2);   // 40% ширины
-    mainLayout->addWidget(centerWidget, 0); // Фиксированно (из-за setFixedWidth)
-    mainLayout->addLayout(rightLayout, 2);  // 40% ширины
+    mainLayout->addLayout(leftLayout, 2);
+    mainLayout->addWidget(centerWidget, 0);
+    mainLayout->addLayout(rightLayout, 2);
+
+    globalLayout->addWidget(gameContentWidget);
+}
+
+void GameWindow::onExitToMenuClicked()
+{
+    emit backToMenu();
+    this->close();
 }
 
 void GameWindow::updateTurnVisuals() {
     if (isGameOver) return;
     if (isPlayerTurn) {
-        infoLabel->setText("ВАШ ХОД!");
-        enemyBoard->setActive(true); // Выделяем поле, куда НАДО стрелять
+        infoLabel->setText("ВАШ ХОД!\nСтреляйте по радару");
+        infoLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: #2980b9; border-bottom: 1px solid #ccc;");
+        enemyBoard->setActive(true);
         playerBoard->setActive(false);
     } else {
-        infoLabel->setText("ХОД ПРОТИВНИКА...");
+        infoLabel->setText("ХОД ПРОТИВНИКА...\nОжидайте");
+        infoLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: #c0392b; border-bottom: 1px solid #ccc;");
         enemyBoard->setActive(false);
         playerBoard->setActive(true);
     }
 }
 
 void GameWindow::onStartBattleClicked() {
-    // Проверка: все ли корабли на поле?
     for(auto s : playerShips) {
         if(!s->isPlaced()) {
             QMessageBox::warning(this, "Внимание", "Сначала расставьте все корабли на поле!");
             return;
         }
-        updateTurnVisuals();
     }
 
-    // Расстановка врага
     if(!enemyBoard->autoPlaceShips()) enemyBoard->autoPlaceShips();
 
     shipsSetupPanel->hide();
     startBattleBtn->hide();
     playerBoard->setEditable(false);
     enemyBoard->setEnabled(true);
+    exitToMenuBtn->setText("Сдаться");
 
     isBattleStarted = true;
     isPlayerTurn = (QRandomGenerator::global()->bounded(2) == 0);
 
-    if(isPlayerTurn) infoLabel->setText("ВАШ ХОД!");
-    else {
-        infoLabel->setText("Ход противника...");
+    updateTurnVisuals();
+    if(!isPlayerTurn) {
         QTimer::singleShot(800, this, &GameWindow::enemyTurn);
     }
 }
@@ -287,83 +335,40 @@ void GameWindow::enemyTurn() {
     int x, y;
     int res = -1;
 
-    // Цикл для гарантированного выстрела:
-    // если цель из очереди уже была обстреляна (результат -1), берем следующую.
     while (res == -1) {
         if (!enemyTargetQueue.isEmpty()) {
-            // 1. Берем цель из очереди (для добивания)
             QPoint target = enemyTargetQueue.takeFirst();
             x = target.x();
             y = target.y();
-
-            // Пропускаем цели, вышедшие за пределы поля.
-            if (x < 0 || x > 9 || y < 0 || y > 9) {
-                continue;
-            }
+            if (x < 0 || x > 9 || y < 0 || y > 9) continue;
         }
         else {
-            // 2. Если очередь пуста — стреляем случайно (ищем новый корабль)
             x = QRandomGenerator::global()->bounded(10);
             y = QRandomGenerator::global()->bounded(10);
         }
 
-        // Делаем выстрел. playerBoard->receiveShot вернет -1, если клетка уже обстреляна.
         res = playerBoard->receiveShot(x, y);
 
-        // Если res == -1, цикл повторяется: берется следующая цель из очереди, или генерируется новая случайная.
-        if (res == -1 && enemyTargetQueue.isEmpty()) {
-            // Если и случайный выстрел попал в уже обстрелянную клетку,
-            // мы продолжим цикл, пока не найдем свободную.
-            // Это немного неэффективно, но гарантирует, что выстрел будет сделан.
-        }
         if (res == 0) {
             isPlayerTurn = true;
             updateTurnVisuals();
-        } else {
+        } else if (res > 0) {
+            if (res == 1) {
+                shipHitPoints.append(QPoint(x, y));
+                if (shipHitPoints.size() == 1) addInitialTargets(x, y);
+                else determineNextTargetLine();
+            } else if (res == 2) {
+                enemyTargetQueue.clear();
+                shipHitPoints.clear();
+            }
             checkGameStatus();
             if(!isGameOver) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
+            break;
         }
     }
 
-    // Обработка результата выстрела
     if (res == 0) {
-        // --- ПРОМАХ ---
-        infoLabel->setText("Враг промахнулся. Ваш ход!");
-        isPlayerTurn = true;
-    }
-    else {
-        // --- ПОПАДАНИЕ или УБИЙСТВО ---
-
-        if (res == 1) {
-            // РАНЕН
-            infoLabel->setText("Враг попал! (Уточняет линию огня)");
-            shipHitPoints.append(QPoint(x, y));
-
-            if (shipHitPoints.size() == 1) {
-                // Первый удар: добавляем 4 соседа для поиска линии
-                addInitialTargets(x, y);
-            }
-            else {
-                // Второй удар и далее: уточняем линию и чистим очередь
-                determineNextTargetLine();
-            }
-
-            // Бот стреляет снова
-            checkGameStatus();
-            if(!isGameOver) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
-        }
-        else if (res == 2) {
-            // УБИТ
-            infoLabel->setText("Враг уничтожил ваш корабль!");
-
-            // Очищаем память: корабль добит, очередь и точки попадания сбрасываются
-            enemyTargetQueue.clear();
-            shipHitPoints.clear();
-
-            // Бот стреляет снова, чтобы начать искать новый корабль
-            checkGameStatus();
-            if(!isGameOver) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
-        }
+        // infoLabel обновляется в updateTurnVisuals
     }
 }
 
@@ -378,25 +383,23 @@ void GameWindow::checkGameStatus() {
 void GameWindow::endGame(bool playerWon) {
     isGameOver = true;
     isBattleStarted = false;
-
-    // ИЗМЕНЕНИЕ 2: Раскрываем расположение кораблей противника
     enemyBoard->setShowShips(true);
-    enemyBoard->update(); // Перерисовываем, чтобы показать корабли
-
+    enemyBoard->update();
     enemyBoard->setEnabled(false);
+    exitToMenuBtn->setText("В меню");
 
     if (playerWon) {
         infoLabel->setText("ПОБЕДА!\nВы уничтожили весь флот!");
-        infoLabel->setStyleSheet("color: green; font-size: 20px; font-weight: bold;");
+        infoLabel->setStyleSheet("color: green; font-size: 20px; font-weight: bold; padding: 10px;");
     } else {
         infoLabel->setText("ПОРАЖЕНИЕ.\nВаш флот разбит.");
-        infoLabel->setStyleSheet("color: red; font-size: 20px; font-weight: bold;");
+        infoLabel->setStyleSheet("color: red; font-size: 20px; font-weight: bold; padding: 10px;");
     }
 
     finishGameBtn->show();
 }
 
 void GameWindow::onFinishGameClicked() {
-    emit backToMenu(); // Сигнализируем главному окну
+    emit backToMenu();
     this->close();
 }

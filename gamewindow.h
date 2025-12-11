@@ -18,11 +18,16 @@ public:
 signals:
     void backToMenu();
 
+protected:
+    // Добавляем paintEvent для отрисовки фона окна
+    void paintEvent(QPaintEvent *event) override;
+
 private slots:
     void onStartBattleClicked();
     void onPlayerBoardClick(int x, int y);
     void enemyTurn();
     void onFinishGameClicked();
+    void onExitToMenuClicked();
 
 private:
     BoardWidget *playerBoard;
@@ -31,6 +36,7 @@ private:
 
     QPushButton *startBattleBtn;
     QPushButton *finishGameBtn;
+    QPushButton *exitToMenuBtn;
     QWidget *shipsSetupPanel;
 
     QVector<Ship*> playerShips;
@@ -39,14 +45,12 @@ private:
     bool isBattleStarted;
     bool isGameOver;
 
-    // --- НОВОЕ: Умная логика бота ---
-    QList<QPoint> enemyTargetQueue;  // Очередь целей для добивания
-    QList<QPoint> shipHitPoints;     // Успешно пораженные клетки текущего корабля
+    // ИИ
+    QList<QPoint> enemyTargetQueue;
+    QList<QPoint> shipHitPoints;
 
-    // Вспомогательные методы
-    void addInitialTargets(int x, int y); // Добавляет 4 соседа (первое попадание)
-    void determineNextTargetLine();       // Уточняет линию огня после второго попадания
-    // ---------------------------------
+    void addInitialTargets(int x, int y);
+    void determineNextTargetLine();
 
     void setupUI();
     void initShips();

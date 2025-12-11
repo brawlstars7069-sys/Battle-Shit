@@ -8,8 +8,6 @@
 #include <QMessageBox>
 #include <QApplication>
 
-// Мы можем объявить класс GameWindow здесь, чтобы избежать циклической зависимости
-// и сразу подготовить почву для перехода к игре.
 class GameWindow;
 
 class MainWindow : public QMainWindow
@@ -20,8 +18,11 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override = default;
 
+protected:
+    // Переопределяем событие отрисовки для фона
+    void paintEvent(QPaintEvent *event) override;
+
 private slots:
-    // Слот, который будет обрабатывать запуск одиночной игры (следующий этап)
     void onSinglePlayerClicked();
     void onMultiplayerClicked();
     void onSettingsClicked();

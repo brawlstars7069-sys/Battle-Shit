@@ -4,8 +4,9 @@
 #include <QWidget>
 #include <QVector>
 #include <QPoint>
+#include <QPainter> // Важно добавить
 #include "ship.h"
-#include <algorithm> // Для std::min
+#include <algorithm>
 
 enum CellState { Empty, ShipCell, Miss, Hit };
 
@@ -16,16 +17,22 @@ class BoardWidget : public QWidget
 public:
     explicit BoardWidget(QWidget *parent = nullptr);
 
-    // --- Методы для адаптивного дизайна ---
+    // Константа для отступа (для цифр и букв)
+    static const int MARGIN = 30;
+
+    // Статический метод для рисования корабля (используется и на доске, и в магазине)
+    static void drawShipShape(QPainter &p, int size, Orientation orient, QRect rect, bool isEnemy, bool isDestroyed);
+
+    // --- Адаптивность ---
     QSize sizeHint() const override;
     int heightForWidth(int w) const override;
-    void setupSizePolicy(); // Настройка QSizePolicy
-    // -------------------------------------
+    void setupSizePolicy();
 
     void setEditable(bool editable);
     void setShips(const QVector<Ship*>& ships);
     void setShowShips(bool show);
     void setActive(bool active) { isActive = active; update(); }
+    void setEnemy(bool enemy) { isEnemyBoard = enemy; } // Помечаем, что это доска врага
 
     bool placeShip(Ship* ship, int x, int y, Orientation orient);
     bool autoPlaceShips();
@@ -33,6 +40,9 @@ public:
 
     int receiveShot(int x, int y);
     bool isAllDestroyed();
+
+    // Преобразование координат экрана в координаты сетки
+    QPoint getGridCoord(QPoint pos);
 
 signals:
     void cellClicked(int x, int y);
@@ -48,7 +58,8 @@ protected:
 
 private:
     bool isEditable;
-    bool showShips; // Флаг видимости
+    bool showShips;
+    bool isEnemyBoard = false; // Флаг для цвета кораблей
     CellState grid[10][10];
     QVector<Ship*> myShips;
 
@@ -56,9 +67,9 @@ private:
     Ship* getShipAt(int x, int y);
     void markAroundDestroyed(Ship *s);
 
-    bool isActive = false; // Подсветка активного поля
-    int hoverX = -1;       // Координата X под курсором
-    int hoverY = -1;       // Координата Y под курсором
+    bool isActive = false;
+    int hoverX = -1;
+    int hoverY = -1;
 };
 
 #endif // BOARDWIDGET_H
