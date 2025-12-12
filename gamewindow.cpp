@@ -8,8 +8,76 @@
 #include <QTimer>
 #include <QRandomGenerator>
 #include <QPainter>
+#include <QCursor>
 
-// --- DraggableShipLabel оставляем без изменений, но используем цвета из BoardWidget ---
+// --- Реализация AvatarWidget ---
+AvatarWidget::AvatarWidget(bool isPlayer, QWidget *parent)
+    : QWidget(parent), isPlayer(isPlayer)
+{
+    setFixedSize(80, 80);
+}
+
+void AvatarWidget::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    int w = width();
+    int h = height();
+    int s = w / 8;
+
+    // Рамка
+    p.setPen(QPen(Qt::black, 2));
+    p.setBrush(QColor(230, 220, 210));
+    p.drawRect(0, 0, w, h);
+
+    QColor silhouetteColor = isPlayer ? QColor(40, 60, 100) : QColor(100, 40, 40);
+    p.setBrush(silhouetteColor);
+    p.setPen(Qt::NoPen);
+
+    p.drawRect(2.5*s, 1.5*s, 3*s, 3*s); // Голова
+    p.drawRect(1*s, 5*s, 6*s, 3*s);     // Плечи
+
+    p.setBrush(QColor(240, 230, 200));
+    p.drawRect(3*s, 2.5*s, 0.8*s, 0.8*s); // Левый глаз
+    p.drawRect(4.2*s, 2.5*s, 0.8*s, 0.8*s); // Правый глаз
+    p.drawRect(3.2*s, 3.8*s, 1.6*s, 0.5*s); // Рот
+}
+
+// --- Реализация MessageBubble ---
+MessageBubble::MessageBubble(QWidget *parent) : QLabel(parent) {
+    // Не используем hide(), чтобы не ломать Layout.
+    // Вместо этого делаем его прозрачным и пустым.
+    setFixedSize(160, 60);
+    setAlignment(Qt::AlignCenter);
+    setWordWrap(true);
+
+    // Изначально прозрачный
+    setStyleSheet("background-color: transparent; border: none; color: transparent;");
+
+    hideTimer = new QTimer(this);
+    hideTimer->setSingleShot(true);
+    connect(hideTimer, &QTimer::timeout, this, &MessageBubble::hideMessage);
+}
+
+void MessageBubble::showMessage(const QString &text) {
+    setText(text);
+    // Стиль 8-бит рамки при показе
+    setStyleSheet(
+        "background-color: #fff; color: #000; border: 2px dashed #000; "
+        "padding: 5px; font-family: 'Courier New'; font-weight: bold; font-size: 14px;"
+        );
+    hideTimer->start(2000);
+}
+
+void MessageBubble::hideMessage() {
+    setText("");
+    setStyleSheet("background-color: transparent; border: none; color: transparent;");
+}
+
+
+// --- DraggableShipLabel ---
+// Исправление: Класс без Q_OBJECT, поэтому искать его через findChildren<DraggableShipLabel> нельзя.
+// Будем искать через findChildren<QLabel>.
 class DraggableShipLabel : public QLabel {
 public:
     int shipId, size;
@@ -45,15 +113,22 @@ protected:
     }
 };
 
+// --- GameWindow ---
+
 GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false)
 {
     setWindowTitle("Морской Бой");
-    resize(1000, 700);
-
-    // Включаем трекинг мыши для всего окна
-    setMouseTracking(true);
+    resize(1000, 750);
+    setMouseTracking(true); // Включаем для самого окна
+    // ИСПРАВЛЕНИЕ: Устанавливаем фильтр на само окно, чтобы ловить мышь везде
+    this->installEventFilter(this);
 
     initShips();
+
+    hitPhrases << "БАБАХ!" << "ПОЛУЧИ!" << "В ЯБЛОЧКО!" << "ЕСТЬ ПРОБИТИЕ!" << "ХА-ХА!";
+    killPhrases << "НА ДНО!" << "БУЛЬ-БУЛЬ!" << "КОРМ ДЛЯ РЫБ!" << "МИНУС ОДИН!" << "ПРОЩАЙ!";
+    missPhrases << "УПС..." << "МИМО!" << "МАЗИЛА!" << "В МОЛОКО" << "ЭХ...";
+
     setupUI();
 }
 
@@ -62,54 +137,57 @@ GameWindow::~GameWindow() {
     qDeleteAll(enemyShips);
 }
 
-void GameWindow::mouseMoveEvent(QMouseEvent *event) {
-    mousePos = event->pos();
-    update(); // Перерисовка фона при движении
+QString GameWindow::getRandomPhrase(const QStringList &list) {
+    if (list.isEmpty()) return "";
+    int index = QRandomGenerator::global()->bounded(list.size());
+    return list[index];
 }
 
-// --- НОВЫЙ ФОН: БУМАГА + ВОЛНЫ ---
+// Перехват событий мыши для параллакса
+bool GameWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::MouseMove) {
+        // Получаем глобальную позицию курсора и переводим в координаты окна
+        QPoint globalPos = QCursor::pos();
+        mousePos = this->mapFromGlobal(globalPos);
+        update(); // Обновляем фон
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void GameWindow::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
 
-    // 1. Фон (Бумага)
     p.fillRect(rect(), QColor(248, 240, 227));
 
     int w = width();
     int h = height();
     int pixelSize = 4;
 
-    // Смещение "на резинке"
-    int shiftX = (mousePos.x() - w/2) * 0.03; // Чуть меньше амплитуда чем в меню
+    int shiftX = (mousePos.x() - w/2) * 0.03;
     int shiftY = (mousePos.y() - h/2) * 0.03;
 
-    // 2. Декоративные кораблики (чуть более темные чем бумага)
     auto drawPixelShip = [&](int x, int y, int size) {
         p.setBrush(QColor(180, 170, 160));
         p.setPen(Qt::NoPen);
         int s = size;
-        int px = x + shiftX * 0.5; // Параллакс
+        int px = x + shiftX * 0.5;
         int py = y + shiftY * 0.5;
-
         p.drawRect(px, py, s*6, s);
         p.drawRect(px + s, py-s, s*4, s);
         p.drawRect(px + s*2, py-s*2, s, s);
     };
 
-    drawPixelShip(100, 100, 4);
-    drawPixelShip(w - 150, h - 100, 5);
-    drawPixelShip(w/2 - 50, h - 50, 3);
+    drawPixelShip(100, 120, 4);
+    drawPixelShip(w - 150, h - 120, 5);
 
-    // 3. Пиксельные волны (Серые)
     p.setBrush(QColor(160, 160, 160));
     for (int y = 0; y < h; y += 50) {
         int rowShift = shiftX * (float(y)/h);
-        // Рисуем пунктир
         for (int x = -50; x < w + 50; x += 30) {
             int finalX = (x + rowShift) % (w + 100);
             if (finalX < -50) finalX += (w + 100);
-
             p.drawRect(finalX, y + shiftY * 0.2, pixelSize, pixelSize);
             p.drawRect(finalX + pixelSize, y + pixelSize + shiftY * 0.2, pixelSize, pixelSize);
         }
@@ -181,42 +259,49 @@ void GameWindow::setupUI() {
 
     // Header
     QWidget *headerWidget = new QWidget(this);
-    // Делаем хедер чуть прозрачным коричневым, чтобы сочетался с бежевым
     headerWidget->setStyleSheet("background-color: rgba(60, 50, 40, 200); border-bottom: 2px solid #555;");
     headerWidget->setFixedHeight(60);
-
     QHBoxLayout *headerLayout = new QHBoxLayout(headerWidget);
     headerLayout->setContentsMargins(20, 0, 20, 0);
-
-    QLabel *gameTitle = new QLabel("БОЙ", this); // Сократил для стиля
+    QLabel *gameTitle = new QLabel("БОЙ", this);
     gameTitle->setStyleSheet("color: #f0e6d2; font-weight: bold; font-size: 24px; font-family: 'Courier New';");
-
     exitToMenuBtn = new QPushButton("ВЫХОД", this);
     exitToMenuBtn->setCursor(Qt::PointingHandCursor);
-    // Стиль кнопки переопределен в QSS, здесь задаем только уникальные цвета если надо
     exitToMenuBtn->setStyleSheet(
         "QPushButton { background-color: #c0392b; color: white; border: 2px solid #922b21; }"
         "QPushButton:hover { background-color: #e74c3c; }"
         );
     connect(exitToMenuBtn, &QPushButton::clicked, this, &GameWindow::onExitToMenuClicked);
-
     headerLayout->addWidget(gameTitle);
     headerLayout->addStretch();
     headerLayout->addWidget(exitToMenuBtn);
-
     globalLayout->addWidget(headerWidget);
 
     // Game Content
     QWidget *gameContentWidget = new QWidget(this);
-    gameContentWidget->setMouseTracking(true); // Важно для фона
+    // Устанавливаем фильтр событий на контейнер игры, чтобы ловить мышь над ним
+    gameContentWidget->installEventFilter(this);
+    // ИСПРАВЛЕНИЕ: Включаем трекинг для контейнера, чтобы параллакс работал между виджетами
+    gameContentWidget->setMouseTracking(true);
     gameContentWidget->setStyleSheet("background: transparent;");
 
     QHBoxLayout *mainLayout = new QHBoxLayout(gameContentWidget);
-    mainLayout->setContentsMargins(30, 20, 30, 20);
+    mainLayout->setContentsMargins(30, 10, 30, 20);
     mainLayout->setSpacing(20);
 
-    // Player Board
+    // --- ЛЕВАЯ КОЛОНКА (ИГРОК) ---
     QVBoxLayout *leftLayout = new QVBoxLayout();
+
+    playerAvatar = new AvatarWidget(true, this);
+    playerAvatar->hide();
+    playerMessage = new MessageBubble(this);
+
+    QVBoxLayout *playerAvatarLayout = new QVBoxLayout();
+    // Фиксируем высоту лейаута аватара, чтобы при скрытии/показе аватара не прыгало (если вдруг решим скрывать)
+    // Но мы скрываем только аватар, а MessageBubble оставляем прозрачным.
+    playerAvatarLayout->addWidget(playerMessage, 0, Qt::AlignCenter);
+    playerAvatarLayout->addWidget(playerAvatar, 0, Qt::AlignCenter);
+
     QLabel *playerTitle = new QLabel("ВАШ ФЛОТ");
     playerTitle->setAlignment(Qt::AlignCenter);
     playerTitle->setStyleSheet("font-weight: bold; color: #333; font-size: 18px; margin-bottom: 5px;");
@@ -226,16 +311,21 @@ void GameWindow::setupUI() {
     playerBoard->setEditable(true);
     playerBoard->setShowShips(true);
     playerBoard->setupSizePolicy();
+    // Устанавливаем фильтр на доску, чтобы мышь работала и над ней
+    playerBoard->installEventFilter(this);
 
-    leftLayout->addStretch(1);
+    leftLayout->addLayout(playerAvatarLayout);
+    leftLayout->addSpacing(10);
     leftLayout->addWidget(playerTitle);
     leftLayout->addWidget(playerBoard);
     leftLayout->addStretch(1);
 
-    // Center Panel
-    QWidget *centerWidget = new QWidget();
+    // --- ЦЕНТРАЛЬНАЯ КОЛОНКА (МАГАЗИН) ---
+    centerWidget = new QWidget();
     centerWidget->setFixedWidth(280);
-    // Полупрозрачный "лист бумаги" для панели
+    centerWidget->installEventFilter(this); // И над магазином
+    // ИСПРАВЛЕНИЕ: Включаем трекинг для магазина
+    centerWidget->setMouseTracking(true);
     centerWidget->setStyleSheet("background-color: rgba(255, 250, 240, 200); border: 2px dashed #aaa; border-radius: 5px;");
     QVBoxLayout *centerLayout = new QVBoxLayout(centerWidget);
     centerLayout->setContentsMargins(15, 15, 15, 15);
@@ -254,6 +344,16 @@ void GameWindow::setupUI() {
         shipsLayout->addWidget(shipLabel, 0, Qt::AlignCenter);
     }
 
+    // Кнопка случайной расстановки
+    randomPlaceBtn = new QPushButton("АВТО-РАССТАНОВКА");
+    randomPlaceBtn->setMinimumHeight(40);
+    randomPlaceBtn->setCursor(Qt::PointingHandCursor);
+    randomPlaceBtn->setStyleSheet(
+        "QPushButton { background-color: #3498db; color: white; font-size: 16px; font-weight: bold; border: 2px solid #2980b9; }"
+        "QPushButton:hover { background-color: #5dade2; }"
+        );
+    connect(randomPlaceBtn, &QPushButton::clicked, this, &GameWindow::onRandomPlaceClicked);
+
     startBattleBtn = new QPushButton("В БОЙ!");
     startBattleBtn->setMinimumHeight(50);
     startBattleBtn->setCursor(Qt::PointingHandCursor);
@@ -271,11 +371,21 @@ void GameWindow::setupUI() {
     centerLayout->addWidget(infoLabel);
     centerLayout->addWidget(shipsSetupPanel);
     centerLayout->addStretch();
+    centerLayout->addWidget(randomPlaceBtn); // Добавили кнопку
     centerLayout->addWidget(startBattleBtn);
     centerLayout->addWidget(finishGameBtn);
 
-    // Enemy Board
+    // --- ПРАВАЯ КОЛОНКА (ВРАГ) ---
     QVBoxLayout *rightLayout = new QVBoxLayout();
+
+    enemyAvatar = new AvatarWidget(false, this);
+    enemyAvatar->hide();
+    enemyMessage = new MessageBubble(this);
+
+    QVBoxLayout *enemyAvatarLayout = new QVBoxLayout();
+    enemyAvatarLayout->addWidget(enemyMessage, 0, Qt::AlignCenter);
+    enemyAvatarLayout->addWidget(enemyAvatar, 0, Qt::AlignCenter);
+
     QLabel *enemyTitle = new QLabel("ПРОТИВНИК");
     enemyTitle->setAlignment(Qt::AlignCenter);
     enemyTitle->setStyleSheet("font-weight: bold; color: #333; font-size: 18px; margin-bottom: 5px;");
@@ -287,18 +397,38 @@ void GameWindow::setupUI() {
     enemyBoard->setShowShips(false);
     enemyBoard->setEnabled(false);
     enemyBoard->setupSizePolicy();
+    enemyBoard->installEventFilter(this);
+
+    // ИСПРАВЛЕНИЕ: Подключаем сигнал клика по вражеской доске к слоту атаки
     connect(enemyBoard, &BoardWidget::cellClicked, this, &GameWindow::onPlayerBoardClick);
 
-    rightLayout->addStretch(1);
+    rightLayout->addLayout(enemyAvatarLayout);
+    rightLayout->addSpacing(10);
     rightLayout->addWidget(enemyTitle);
     rightLayout->addWidget(enemyBoard);
     rightLayout->addStretch(1);
 
     mainLayout->addLayout(leftLayout, 2);
-    mainLayout->addWidget(centerWidget, 0);
+    mainLayout->addWidget(centerWidget, 0, Qt::AlignTop);
     mainLayout->addLayout(rightLayout, 2);
 
     globalLayout->addWidget(gameContentWidget);
+}
+
+void GameWindow::onRandomPlaceClicked() {
+    // Авторасстановка
+    if (playerBoard->autoPlaceShips()) {
+        // Если успешно, скрываем корабли в магазине
+        // ИСПРАВЛЕНИЕ: Ищем QLabel*, так как DraggableShipLabel не имеет макроса Q_OBJECT
+        // и findChildren с ним вызывает static assertion failure.
+        QList<QLabel*> labels = shipsSetupPanel->findChildren<QLabel*>();
+        for(auto label : labels) {
+            label->hide();
+        }
+        playerBoard->update(); // Перерисовать доску
+    } else {
+        QMessageBox::warning(this, "Ошибка", "Не удалось расставить корабли. Попробуйте еще раз.");
+    }
 }
 
 void GameWindow::onExitToMenuClicked()
@@ -310,13 +440,13 @@ void GameWindow::onExitToMenuClicked()
 void GameWindow::updateTurnVisuals() {
     if (isGameOver) return;
     if (isPlayerTurn) {
-        infoLabel->setText("ВАШ ХОД");
-        infoLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #2980b9; border-bottom: 2px solid #ccc; font-family: 'Courier New';");
+        playerAvatar->setStyleSheet("border: 2px solid yellow;");
+        enemyAvatar->setStyleSheet("border: none;");
         enemyBoard->setActive(true);
         playerBoard->setActive(false);
     } else {
-        infoLabel->setText("ЖДИТЕ...");
-        infoLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #c0392b; border-bottom: 2px solid #ccc; font-family: 'Courier New';");
+        enemyAvatar->setStyleSheet("border: 2px solid yellow;");
+        playerAvatar->setStyleSheet("border: none;");
         enemyBoard->setActive(false);
         playerBoard->setActive(true);
     }
@@ -331,14 +461,22 @@ void GameWindow::onStartBattleClicked() {
     }
     if(!enemyBoard->autoPlaceShips()) enemyBoard->autoPlaceShips();
 
-    shipsSetupPanel->hide();
-    startBattleBtn->hide();
+    // СКРЫВАЕМ ЦЕНТРАЛЬНУЮ ПАНЕЛЬ
+    centerWidget->setVisible(false);
+
+    playerAvatar->show();
+    enemyAvatar->show();
+
     playerBoard->setEditable(false);
     enemyBoard->setEnabled(true);
     exitToMenuBtn->setText("СДАТЬСЯ");
 
     isBattleStarted = true;
     isPlayerTurn = (QRandomGenerator::global()->bounded(2) == 0);
+
+    if (isPlayerTurn) playerMessage->showMessage("Я НАЧИНАЮ!");
+    else enemyMessage->showMessage("МОЙ ХОД!");
+
     updateTurnVisuals();
     if(!isPlayerTurn) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
 }
@@ -347,11 +485,18 @@ void GameWindow::onPlayerBoardClick(int x, int y) {
     if(!isBattleStarted || !isPlayerTurn || isGameOver) return;
     int res = enemyBoard->receiveShot(x, y);
     if (res == -1) return;
+
     if (res == 0) {
+        playerMessage->showMessage(getRandomPhrase(missPhrases));
         isPlayerTurn = false;
         updateTurnVisuals();
         QTimer::singleShot(800, this, &GameWindow::enemyTurn);
-    } else checkGameStatus();
+    } else if (res > 0) {
+        if (res == 1) playerMessage->showMessage(getRandomPhrase(hitPhrases));
+        if (res == 2) playerMessage->showMessage(getRandomPhrase(killPhrases));
+
+        checkGameStatus();
+    }
 }
 
 void GameWindow::enemyTurn() {
@@ -368,19 +513,24 @@ void GameWindow::enemyTurn() {
         }
         res = playerBoard->receiveShot(x, y);
         if (res == 0) {
+            enemyMessage->showMessage(getRandomPhrase(missPhrases));
             isPlayerTurn = true;
             updateTurnVisuals();
         } else if (res > 0) {
-            if (res == 1) {
-                shipHitPoints.append(QPoint(x, y));
-                if (shipHitPoints.size() == 1) addInitialTargets(x, y);
-                else determineNextTargetLine();
-            } else if (res == 2) {
+            if (res == 1) enemyMessage->showMessage(getRandomPhrase(hitPhrases));
+            if (res == 2) {
+                enemyMessage->showMessage(getRandomPhrase(killPhrases));
                 enemyTargetQueue.clear();
                 shipHitPoints.clear();
+            } else {
+                if (res == 1) {
+                    shipHitPoints.append(QPoint(x, y));
+                    if (shipHitPoints.size() == 1) addInitialTargets(x, y);
+                    else determineNextTargetLine();
+                }
             }
             checkGameStatus();
-            if(!isGameOver) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
+            if(!isGameOver) QTimer::singleShot(1500, this, &GameWindow::enemyTurn);
             break;
         }
     }
@@ -398,14 +548,27 @@ void GameWindow::endGame(bool playerWon) {
     enemyBoard->update();
     enemyBoard->setEnabled(false);
     exitToMenuBtn->setText("В МЕНЮ");
+
+    // Скрываем ненужные элементы панели
+    shipsSetupPanel->hide();
+    startBattleBtn->hide();
+    randomPlaceBtn->hide();
+    infoLabel->show(); // Убеждаемся, что лейбл виден
+
+    finishGameBtn->show();
+    centerWidget->setVisible(true);
+
     if (playerWon) {
         infoLabel->setText("ПОБЕДА!");
         infoLabel->setStyleSheet("color: #27ae60; font-size: 22px; font-weight: bold; border-bottom: 2px solid #ccc; font-family: 'Courier New';");
+        playerMessage->showMessage("ПОБЕДА!");
+        enemyMessage->showMessage("НЕЕЕЕТ!");
     } else {
         infoLabel->setText("ПОРАЖЕНИЕ");
         infoLabel->setStyleSheet("color: #c0392b; font-size: 22px; font-weight: bold; border-bottom: 2px solid #ccc; font-family: 'Courier New';");
+        playerMessage->showMessage("КАК ТАК?!");
+        enemyMessage->showMessage("ЛЕГКО!");
     }
-    finishGameBtn->show();
 }
 
 void GameWindow::onFinishGameClicked() {
