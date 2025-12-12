@@ -1,15 +1,19 @@
-#include "MainWindow.h"
+#include "mainwindow.h"
 #include <QFile>
 #include <QTextStream>
-#include "GameWindow.h"
+#include "gamewindow.h"
 #include <QPainter>
-#include <QStyleOption>
+#include <cmath> // для sin/cos
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setObjectName("menuWindow");
 
-    // При желании можно оставить стили, но фон теперь рисуется вручную
+    // Включаем отслеживание мыши даже без нажатия кнопок
+    setMouseTracking(true);
+    // Важно включить и для centralWidget, иначе он перехватывает события
+    if(centralWidget()) centralWidget()->setMouseTracking(true);
+
     QFile file(":/styles/styles.qss");
     if (file.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&file);
@@ -19,134 +23,130 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     }
 
     setupUI();
-    setWindowTitle("Морской Бой - Главное Меню");
-    resize(500, 450); // Чуть больше стартовый размер
+    setWindowTitle("Морской Бой - 8-BIT EDITION");
+    resize(600, 500);
 }
 
 void MainWindow::setupUI()
 {
     QWidget *centralWidget = new QWidget(this);
+    // Включаем трекинг для центрального виджета, чтобы фон реагировал на мышь поверх кнопок
+    centralWidget->setMouseTracking(true);
     setCentralWidget(centralWidget);
 
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
     layout->setSpacing(15);
     layout->setContentsMargins(40, 40, 40, 40);
 
-    // Заголовок
+    // Заголовок в стиле "печать"
     QLabel *titleLabel = new QLabel("МОРСКОЙ БОЙ", this);
     titleLabel->setAlignment(Qt::AlignCenter);
-    titleLabel->setStyleSheet("font-size: 32px; font-weight: bold; color: white; "
-                              "background-color: rgba(0,0,0,100); border-radius: 10px; padding: 10px;");
+    titleLabel->setStyleSheet(
+        "font-size: 36px; font-weight: bold; color: #2c2c2c; "
+        "background-color: transparent; border: 4px dashed #555; padding: 15px;"
+        );
 
-    // Создаем кнопки
-    QPushButton *btnSingle = new QPushButton("Одиночная игра", this);
-    QPushButton *btnMulti = new QPushButton("Мультиплеер", this);
-    QPushButton *btnSettings = new QPushButton("Настройки", this);
-    QPushButton *btnExit = new QPushButton("Выход", this);
+    QPushButton *btnSingle = new QPushButton("ОДИНОЧНАЯ ИГРА", this);
+    QPushButton *btnMulti = new QPushButton("МУЛЬТИПЛЕЕР", this);
+    QPushButton *btnSettings = new QPushButton("НАСТРОЙКИ", this);
+    QPushButton *btnExit = new QPushButton("ВЫХОД", this);
 
-    // Общий стиль для кнопок меню
-    QString btnStyle =
-        "QPushButton { "
-        "  background-color: #ecf0f1; color: #2c3e50; font-size: 16px; font-weight: bold; "
-        "  border: 2px solid #bdc3c7; border-radius: 8px; padding: 10px; "
-        "}"
-        "QPushButton:hover { background-color: #bdc3c7; border-color: #95a5a6; }";
-
-    btnSingle->setStyleSheet(btnStyle);
-    btnMulti->setStyleSheet(btnStyle);
-    btnSettings->setStyleSheet(btnStyle);
-    btnExit->setStyleSheet(btnStyle);
-
-    // Добавляем элементы в Layout
-    // Используем Stretch, чтобы центрировать блок кнопок по вертикали
     layout->addStretch(1);
     layout->addWidget(titleLabel);
-    layout->addSpacing(20); // Отступ под заголовком
-    layout->addWidget(btnSingle);
-    layout->addWidget(btnMulti);
-    layout->addWidget(btnSettings);
-    layout->addWidget(btnExit);
+    layout->addSpacing(30);
+    layout->addWidget(btnSingle, 0, Qt::AlignCenter);
+    layout->addWidget(btnMulti, 0, Qt::AlignCenter);
+    layout->addWidget(btnSettings, 0, Qt::AlignCenter);
+    layout->addWidget(btnExit, 0, Qt::AlignCenter);
     layout->addStretch(1);
 
-    // Подключаем сигналы к слотам
     connect(btnSingle, &QPushButton::clicked, this, &MainWindow::onSinglePlayerClicked);
     connect(btnMulti, &QPushButton::clicked, this, &MainWindow::onMultiplayerClicked);
     connect(btnSettings, &QPushButton::clicked, this, &MainWindow::onSettingsClicked);
     connect(btnExit, &QPushButton::clicked, this, &MainWindow::onExitClicked);
 }
 
-// РИСУЕМ ФОН (Океан и пиксельные корабли)
+void MainWindow::mouseMoveEvent(QMouseEvent *event) {
+    mousePos = event->pos();
+    update(); // Перерисовываем фон при движении мыши
+}
+
+// --- ОТРИСОВКА ФОНА (БУМАГА + ПИКСЕЛЬНЫЕ ВОЛНЫ) ---
 void MainWindow::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::Antialiasing, false); // Отключаем сглаживание для пиксельного стиля
 
-    // 1. Рисуем Океан (Градиент)
-    QLinearGradient gradient(0, 0, 0, height());
-    gradient.setColorAt(0.0, QColor(0, 168, 255));   // Светло-голубой сверху
-    gradient.setColorAt(1.0, QColor(0, 70, 140));    // Темно-синий снизу
-    p.fillRect(rect(), gradient);
+    // 1. Фон "Бумага"
+    p.fillRect(rect(), QColor(248, 240, 227)); // Светло-бежевый (Linen/OldLace)
 
-    // 2. Рисуем волны (простые линии)
-    p.setPen(QPen(QColor(255, 255, 255, 30), 2));
-    for (int y = 50; y < height(); y += 40) {
-        for (int x = 0; x < width(); x += 60) {
-            // Сдвиг волн через ряд
-            int offsetX = (y % 80 == 0) ? 30 : 0;
-            p.drawLine(x + offsetX, y, x + 20 + offsetX, y);
+    int w = width();
+    int h = height();
+    int pixelSize = 4; // Размер одного "пикселя"
+
+    // Вычисляем смещение от центра экрана до мыши
+    // Коэффициент 0.05 делает движение "медленным" (как на резинке/параллакс)
+    int shiftX = (mousePos.x() - w/2) * 0.05;
+    int shiftY = (mousePos.y() - h/2) * 0.05;
+
+    // 2. Декоративные кораблики на фоне
+    // Рисуем их ДО волн, чтобы они были как бы "в море"
+    auto drawPixelShip = [&](int x, int y, int size, QColor color) {
+        p.setBrush(color);
+        p.setPen(Qt::NoPen);
+        int s = size; // масштабирование пикселя корабля
+
+        // Смещаем кораблики тоже, но с другим коэффициентом (эффект глубины)
+        int shipShiftX = shiftX * 0.5;
+
+        // Простой силуэт
+        p.drawRect(x + shipShiftX, y, s*6, s);        // Низ
+        p.drawRect(x + s + shipShiftX, y-s, s*4, s);  // Середина
+        p.drawRect(x + s*2 + shipShiftX, y-s*2, s, s);// Труба
+    };
+
+    drawPixelShip(w*0.1, h*0.2, 5, QColor(200, 190, 180)); // Очень бледный
+    drawPixelShip(w*0.8, h*0.6, 6, QColor(180, 170, 160));
+    drawPixelShip(w*0.2, h*0.8, 4, QColor(190, 180, 170));
+
+    // 3. Пиксельные волны
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(169, 169, 169)); // Темно-серый (DarkGray)
+
+    // Рисуем ряды волн
+    for (int y = 50; y < h; y += 40) {
+        // Сдвиг волны по фазе + сдвиг от мыши
+        // Чем ниже волна, тем сильнее она может реагировать на мышь (эффект перспективы)
+        int rowShift = shiftX * (float(y)/h);
+
+        for (int x = -50; x < w + 50; x += 20) {
+            // Рисуем "гребень" волны - просто квадратик или лесенка
+            // Используем синус для легкого изгиба? Нет, просто пунктир в стиле 8-бит
+
+            // Если (x + rowShift) попадает в сетку
+            int finalX = x + rowShift;
+            // Зацикливаем волны, чтобы не уезжали бесконечно
+            finalX = (finalX % (w + 100));
+            if (finalX < -50) finalX += (w + 100);
+
+            // Рисуем пиксельный "кубик" волны
+            p.drawRect(finalX, y + shiftY * 0.2, pixelSize, pixelSize);
+            p.drawRect(finalX + pixelSize, y + pixelSize + shiftY * 0.2, pixelSize, pixelSize);
         }
     }
-
-    // 3. Рисуем пиксельные кораблики на фоне
-    // Они будут масштабироваться относительно размера окна, чтобы "картинка была одинаковой"
-
-    // Кораблик 1 (Слева)
-    int ship1X = width() * 0.15;
-    int ship1Y = height() * 0.6;
-    int scale1 = width() / 80; // Размер пикселя зависит от ширины окна
-
-    p.setBrush(QColor(50, 50, 50));
-    p.setPen(Qt::NoPen);
-
-    // Корпус
-    p.drawRect(ship1X, ship1Y, scale1 * 5, scale1);       // Низ
-    p.drawRect(ship1X + scale1, ship1Y - scale1, scale1 * 3, scale1); // Верх
-    p.drawRect(ship1X + scale1 * 2, ship1Y - scale1 * 2, scale1, scale1); // Труба
-
-    // Кораблик 2 (Справа, поменьше)
-    int ship2X = width() * 0.75;
-    int ship2Y = height() * 0.3;
-    int scale2 = width() / 120;
-
-    p.setBrush(QColor(200, 50, 50)); // Красный враг
-    p.drawRect(ship2X, ship2Y, scale2 * 4, scale2);
-    p.drawRect(ship2X + scale2, ship2Y - scale2, scale2 * 2, scale2);
 }
 
 void MainWindow::onSinglePlayerClicked()
 {
     GameWindow *game = new GameWindow();
     this->hide();
-
     connect(game, &GameWindow::backToMenu, this, [=]() {
         this->show();
     });
-
     game->setAttribute(Qt::WA_DeleteOnClose);
     game->show();
 }
 
-void MainWindow::onMultiplayerClicked()
-{
-    QMessageBox::information(this, "В разработке", "Мультиплеер пока не доступен.");
-}
-
-void MainWindow::onSettingsClicked()
-{
-    QMessageBox::information(this, "В разработке", "Настройки пока не доступны.");
-}
-
-void MainWindow::onExitClicked()
-{
-    QApplication::quit();
-}
+void MainWindow::onMultiplayerClicked() { QMessageBox::information(this, "Инфо", "Скоро..."); }
+void MainWindow::onSettingsClicked() { QMessageBox::information(this, "Инфо", "Скоро..."); }
+void MainWindow::onExitClicked() { QApplication::quit(); }

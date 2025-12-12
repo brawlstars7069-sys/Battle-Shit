@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QList>
 #include <QPoint>
+#include <QMouseEvent>
 #include "boardwidget.h"
 
 class GameWindow : public QWidget
@@ -19,8 +20,9 @@ signals:
     void backToMenu();
 
 protected:
-    // Добавляем paintEvent для отрисовки фона окна
     void paintEvent(QPaintEvent *event) override;
+    // Добавляем событие движения мыши
+    void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
     void onStartBattleClicked();
@@ -45,9 +47,11 @@ private:
     bool isBattleStarted;
     bool isGameOver;
 
-    // ИИ
     QList<QPoint> enemyTargetQueue;
     QList<QPoint> shipHitPoints;
+
+    // Для эффекта фона
+    QPoint mousePos;
 
     void addInitialTargets(int x, int y);
     void determineNextTargetLine();

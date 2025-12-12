@@ -7,6 +7,8 @@
 #include <QWidget>
 #include <QMessageBox>
 #include <QApplication>
+#include <QMouseEvent>
+#include <QPoint>
 
 class GameWindow;
 
@@ -19,8 +21,10 @@ public:
     ~MainWindow() override = default;
 
 protected:
-    // Переопределяем событие отрисовки для фона
+    // Отрисовка фона
     void paintEvent(QPaintEvent *event) override;
+    // Отслеживание мыши для эффекта параллакса
+    void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
     void onSinglePlayerClicked();
@@ -30,6 +34,7 @@ private slots:
 
 private:
     void setupUI();
+    QPoint mousePos; // Текущая позиция мыши
 };
 
 #endif // MAINWINDOW_H

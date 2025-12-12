@@ -1,43 +1,39 @@
-/* Селектор: Применить стиль к QPushButton ТОЛЬКО внутри виджета с objectName = "menuWindow" */
-QWidget#menuWindow QPushButton {
-    /* Фиксированные размеры для одинаковой ширины и высоты */
-    min-width: 200px;
-    max-width: 200px;
-    min-height: 40px;
-    max-height: 40px;
-
-    /* Отступы, размер шрифта */
-    padding: 5px;
-    font-size: 16px;
-
-    /* Выравнивание текста по центру */
-    text-align: center;
-
-    /* Немного скругленные углы для красоты */
-    border-radius: 5px;
-
-    /* Простой фон */
-    background-color: #f0f0f0;
-    border: 1px solid #c0c0c0;
+/* Общий стиль для всего окна (чтобы фон кнопок наследовал тему) */
+QWidget {
+    font-family: "Courier New", Courier, monospace; /* Моноширинный шрифт для 8-бит стиля */
 }
 
-/* Стиль при наведении курсора */
-QWidget#menuWindow QPushButton:hover {
-    background-color: #e0e0e0;
-}
-
-/* Стиль при нажатии */
-QWidget#menuWindow QPushButton:pressed {
-    background-color: #d0d0d0;
-    padding-top: 7px;
-    padding-bottom: 3px;
-}
-
-/* Опционально: базовый стиль для всех других QPushButton,
-   чтобы они не выглядели совсем "голыми", но были обычными.
-   Если этот блок не нужен, его можно удалить.
+/* Кнопки в меню и в игре */
 QPushButton {
-    min-height: 30px;
-    font-size: 12px;
+    background-color: #e8e0d5; /* Цвет плотной бумаги */
+    color: #4a4a4a;            /* Темно-серый текст */
+    border: 2px solid #8c8c8c; /* Серая пиксельная рамка */
+    border-radius: 0px;        /* Убираем скругление для 8-бит стиля */
+    padding: 8px;
+    font-weight: bold;
+    font-size: 16px;
+    min-height: 40px;
 }
-*/
+
+QPushButton:hover {
+    background-color: #dcd0c0; /* Чуть темнее при наведении */
+    border: 2px solid #5a5a5a;
+}
+
+QPushButton:pressed {
+    background-color: #c0b0a0;
+    padding-top: 10px; /* Эффект нажатия */
+    padding-bottom: 6px;
+}
+
+/* Специфично для кнопок в меню (по имени объекта окна) */
+QWidget#menuWindow QPushButton {
+    min-width: 220px;
+    max-width: 220px;
+    margin: 5px;
+}
+
+/* Заголовки (Лейблы) */
+QLabel {
+    color: #333333;
+}
