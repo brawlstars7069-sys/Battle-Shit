@@ -7,17 +7,22 @@
 #include <QList>
 #include <QPoint>
 #include <QTimer>
+#include <QPixmap>
 #include "boardwidget.h"
+#include "RPSWidget.h"
 
 // Классы-помощники
 class AvatarWidget : public QWidget {
     Q_OBJECT
 public:
     explicit AvatarWidget(bool isPlayer, QWidget *parent = nullptr);
+    void setAvatarImage(const QString &path); // Новый метод
+
 protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     bool isPlayer;
+    QPixmap avatarImage; // Хранение картинки
 };
 
 class MessageBubble : public QLabel {
@@ -37,7 +42,7 @@ class GameWindow : public QWidget
 {
     Q_OBJECT
 public:
-    explicit GameWindow(QWidget *parent = nullptr);
+    explicit GameWindow(const QString &playerAvatarPath = "", QWidget *parent = nullptr); // Обновленный конструктор
     ~GameWindow();
 
 signals:
@@ -46,12 +51,14 @@ signals:
 protected:
     void paintEvent(QPaintEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private slots:
     void onStartBattleClicked();
+    void startGameAfterRPS(bool playerFirst);
+
     void onRandomPlaceClicked();
     void onPlayerBoardClick(int x, int y);
-    // НОВЫЙ СЛОТ: Обработка удара ракеты
     void onMissileImpact(int x, int y, bool isHit);
 
     void enemyTurn();
@@ -82,7 +89,7 @@ private:
     bool isPlayerTurn;
     bool isBattleStarted;
     bool isGameOver;
-    bool isAnimating = false; // Блокировка ввода
+    bool isAnimating = false;
 
     QList<QPoint> enemyTargetQueue;
     QList<QPoint> shipHitPoints;
@@ -109,6 +116,9 @@ private:
     void updateTurnVisuals();
 
     QString getRandomPhrase(const QStringList &list);
+
+    RPSWidget *rpsOverlay = nullptr;
+    QString currentPlayerAvatarPath; // Путь к текущему аватару
 };
 
 #endif // GAMEWINDOW_H

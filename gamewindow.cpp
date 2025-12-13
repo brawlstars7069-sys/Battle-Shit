@@ -17,6 +17,13 @@ AvatarWidget::AvatarWidget(bool isPlayer, QWidget *parent)
     setFixedSize(80, 80);
 }
 
+void AvatarWidget::setAvatarImage(const QString &path) {
+    if (!path.isEmpty()) {
+        avatarImage.load(path);
+        update();
+    }
+}
+
 void AvatarWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
@@ -25,22 +32,29 @@ void AvatarWidget::paintEvent(QPaintEvent *) {
     int h = height();
     int s = w / 8;
 
-    // Рамка
+    // Рамка (оставляем как было)
     p.setPen(QPen(Qt::black, 2));
     p.setBrush(QColor(230, 220, 210));
     p.drawRect(0, 0, w, h);
 
-    QColor silhouetteColor = isPlayer ? QColor(40, 60, 100) : QColor(100, 40, 40);
-    p.setBrush(silhouetteColor);
-    p.setPen(Qt::NoPen);
+    // Если есть картинка - рисуем её
+    if (!avatarImage.isNull() && isPlayer) {
+        // Рисуем с отступом в 4 пикселя, чтобы не перекрывать рамку
+        p.drawPixmap(4, 4, w-8, h-8, avatarImage);
+    } else {
+        // Стандартная отрисовка 8-бит человечка
+        QColor silhouetteColor = isPlayer ? QColor(40, 60, 100) : QColor(100, 40, 40);
+        p.setBrush(silhouetteColor);
+        p.setPen(Qt::NoPen);
 
-    p.drawRect(2.5*s, 1.5*s, 3*s, 3*s); // Голова
-    p.drawRect(1*s, 5*s, 6*s, 3*s);     // Плечи
+        p.drawRect(2.5*s, 1.5*s, 3*s, 3*s); // Голова
+        p.drawRect(1*s, 5*s, 6*s, 3*s);     // Плечи
 
-    p.setBrush(QColor(240, 230, 200));
-    p.drawRect(3*s, 2.5*s, 0.8*s, 0.8*s); // Левый глаз
-    p.drawRect(4.2*s, 2.5*s, 0.8*s, 0.8*s); // Правый глаз
-    p.drawRect(3.2*s, 3.8*s, 1.6*s, 0.5*s); // Рот
+        p.setBrush(QColor(240, 230, 200));
+        p.drawRect(3*s, 2.5*s, 0.8*s, 0.8*s); // Левый глаз
+        p.drawRect(4.2*s, 2.5*s, 0.8*s, 0.8*s); // Правый глаз
+        p.drawRect(3.2*s, 3.8*s, 1.6*s, 0.5*s); // Рот
+    }
 }
 
 // --- Реализация MessageBubble ---
@@ -108,7 +122,8 @@ protected:
 
 // --- GameWindow ---
 
-GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false), isAnimating(false)
+GameWindow::GameWindow(const QString &playerAvatarPath, QWidget *parent)
+    : QWidget(parent), isBattleStarted(false), isGameOver(false), isAnimating(false), currentPlayerAvatarPath(playerAvatarPath)
 {
     setWindowTitle("Морской Бой");
     resize(1000, 750);
@@ -127,6 +142,11 @@ GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false
     missPhrases << "УПС..." << "МИМО!" << "МАЗИЛА!" << "В МОЛОКО" << "ЭХ...";
 
     setupUI();
+
+    // Устанавливаем аватар, если путь передан
+    if (!currentPlayerAvatarPath.isEmpty()) {
+        playerAvatar->setAvatarImage(currentPlayerAvatarPath);
+    }
 }
 
 GameWindow::~GameWindow() {
@@ -147,6 +167,13 @@ bool GameWindow::eventFilter(QObject *watched, QEvent *event) {
         update();
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void GameWindow::resizeEvent(QResizeEvent *event) {
+    if (rpsOverlay) {
+        rpsOverlay->resize(this->size());
+    }
+    QWidget::resizeEvent(event);
 }
 
 void GameWindow::paintEvent(QPaintEvent *)
@@ -390,10 +417,7 @@ void GameWindow::setupUI() {
     enemyBoard->setupSizePolicy();
     enemyBoard->installEventFilter(this);
 
-    // --- ИСПРАВЛЕНИЕ: Гарантируем подключение сигналов ---
-    // 1. Клик по доске вызывает проверку и старт анимации
     connect(enemyBoard, &BoardWidget::cellClicked, this, &GameWindow::onPlayerBoardClick);
-    // 2. Окончание анимации вызывает расчет попадания
     connect(enemyBoard, &BoardWidget::missileImpact, this, &GameWindow::onMissileImpact);
 
     rightLayout->addLayout(enemyAvatarLayout);
@@ -442,6 +466,7 @@ void GameWindow::updateTurnVisuals() {
     }
 }
 
+// ИЗМЕНЕНО: Теперь запускаем мини-игру К-Н-Б
 void GameWindow::onStartBattleClicked() {
     for(auto s : playerShips) {
         if(!s->isPlaced()) {
@@ -449,22 +474,33 @@ void GameWindow::onStartBattleClicked() {
             return;
         }
     }
+
+    // Подготовка доски врага
     if(!enemyBoard->autoPlaceShips()) enemyBoard->autoPlaceShips();
 
-    // СКРЫВАЕМ ЦЕНТРАЛЬНУЮ ПАНЕЛЬ
+    // Скрываем центральную панель сразу, чтобы не мешала под оверлеем
     centerWidget->setVisible(false);
+
+    // Создаем оверлей мини-игры
+    rpsOverlay = new RPSWidget(this);
+    connect(rpsOverlay, &RPSWidget::gameFinished, this, &GameWindow::startGameAfterRPS);
+    rpsOverlay->show();
+}
+
+// НОВЫЙ СЛОТ: Запускает сам бой после К-Н-Б
+void GameWindow::startGameAfterRPS(bool playerFirst) {
+    rpsOverlay = nullptr; // Виджет удаляется сам через deleteLater()
 
     playerAvatar->show();
     enemyAvatar->show();
 
     playerBoard->setEditable(false);
-    // ВАЖНО: Включаем доску противника, чтобы она могла принимать клики
     enemyBoard->setEnabled(true);
     exitToMenuBtn->setText("СДАТЬСЯ");
 
     isBattleStarted = true;
-    isAnimating = false; // Сбрасываем флаг анимации, чтобы разрешить ввод
-    isPlayerTurn = (QRandomGenerator::global()->bounded(2) == 0);
+    isAnimating = false;
+    isPlayerTurn = playerFirst; // Результат из К-Н-Б
 
     if (isPlayerTurn) playerMessage->showMessage("Я НАЧИНАЮ!");
     else enemyMessage->showMessage("МОЙ ХОД!");
@@ -540,7 +576,6 @@ void GameWindow::enemyTurn() {
     bool valid = false;
     int attempts = 0;
 
-    // Пытаемся найти валидную цель
     while (!valid && attempts < 100) {
         attempts++;
         if (!enemyTargetQueue.isEmpty()) {
@@ -564,7 +599,6 @@ void GameWindow::enemyTurn() {
     if (valid) {
         playerBoard->animateShot(x, y);
     } else {
-        // Если совсем не нашли (редкий случай), пропускаем ход или пробуем снова
         isPlayerTurn = true;
         updateTurnVisuals();
     }
