@@ -4,11 +4,24 @@
 #include <QWidget>
 #include <QVector>
 #include <QPoint>
-#include <QPainter> // Важно добавить
+#include <QPainter>
+#include <QTimer>
 #include "ship.h"
 #include <algorithm>
 
 enum CellState { Empty, ShipCell, Miss, Hit };
+
+enum class AnimState { Idle, Falling, Exploding };
+
+struct MissileAnim {
+    AnimState state = AnimState::Idle;
+    QPoint gridPos;
+    QPointF currentPos;
+    float targetY;
+    float speedY;
+    int frame;
+    bool isHit;
+};
 
 class BoardWidget : public QWidget
 {
@@ -17,13 +30,10 @@ class BoardWidget : public QWidget
 public:
     explicit BoardWidget(QWidget *parent = nullptr);
 
-    // Константа для отступа (для цифр и букв)
     static const int MARGIN = 30;
 
-    // Статический метод для рисования корабля (используется и на доске, и в магазине)
     static void drawShipShape(QPainter &p, int size, Orientation orient, QRect rect, bool isEnemy, bool isDestroyed);
 
-    // --- Адаптивность ---
     QSize sizeHint() const override;
     int heightForWidth(int w) const override;
     void setupSizePolicy();
@@ -32,21 +42,27 @@ public:
     void setShips(const QVector<Ship*>& ships);
     void setShowShips(bool show);
     void setActive(bool active) { isActive = active; update(); }
-    void setEnemy(bool enemy) { isEnemyBoard = enemy; } // Помечаем, что это доска врага
+    void setEnemy(bool enemy) { isEnemyBoard = enemy; }
 
     bool placeShip(Ship* ship, int x, int y, Orientation orient);
     bool autoPlaceShips();
     void clearBoard();
 
+    // Методы анимации и логики
+    void animateShot(int x, int y);
     int receiveShot(int x, int y);
-    bool isAllDestroyed();
 
-    // Преобразование координат экрана в координаты сетки
+    // НОВЫЙ МЕТОД: Проверка, можно ли сюда стрелять
+    bool canShootAt(int x, int y);
+
+    bool isAllDestroyed();
     QPoint getGridCoord(QPoint pos);
+    bool hasShipAt(int x, int y);
 
 signals:
     void cellClicked(int x, int y);
     void shipPlaced();
+    void missileImpact(int x, int y, bool isHit);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -56,20 +72,31 @@ protected:
     void leaveEvent(QEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
 
+private slots:
+    void updateAnimation();
+
 private:
     bool isEditable;
     bool showShips;
-    bool isEnemyBoard = false; // Флаг для цвета кораблей
+    bool isEnemyBoard = false;
     CellState grid[10][10];
     QVector<Ship*> myShips;
 
     bool canPlace(int x, int y, int size, Orientation orient, Ship* ignoreShip);
     Ship* getShipAt(int x, int y);
     void markAroundDestroyed(Ship *s);
+    void placeShipCells(Ship* ship);
+    void removeShipCells(Ship* ship);
 
     bool isActive = false;
     int hoverX = -1;
     int hoverY = -1;
+
+    QTimer *animTimer;
+    MissileAnim currentAnim;
+
+    void drawMissile(QPainter &p);
+    void drawExplosion(QPainter &p);
 };
 
 #endif // BOARDWIDGET_H

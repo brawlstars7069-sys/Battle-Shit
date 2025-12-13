@@ -45,13 +45,9 @@ void AvatarWidget::paintEvent(QPaintEvent *) {
 
 // --- Реализация MessageBubble ---
 MessageBubble::MessageBubble(QWidget *parent) : QLabel(parent) {
-    // Не используем hide(), чтобы не ломать Layout.
-    // Вместо этого делаем его прозрачным и пустым.
     setFixedSize(160, 60);
     setAlignment(Qt::AlignCenter);
     setWordWrap(true);
-
-    // Изначально прозрачный
     setStyleSheet("background-color: transparent; border: none; color: transparent;");
 
     hideTimer = new QTimer(this);
@@ -61,7 +57,6 @@ MessageBubble::MessageBubble(QWidget *parent) : QLabel(parent) {
 
 void MessageBubble::showMessage(const QString &text) {
     setText(text);
-    // Стиль 8-бит рамки при показе
     setStyleSheet(
         "background-color: #fff; color: #000; border: 2px dashed #000; "
         "padding: 5px; font-family: 'Courier New'; font-weight: bold; font-size: 14px;"
@@ -76,8 +71,6 @@ void MessageBubble::hideMessage() {
 
 
 // --- DraggableShipLabel ---
-// Исправление: Класс без Q_OBJECT, поэтому искать его через findChildren<DraggableShipLabel> нельзя.
-// Будем искать через findChildren<QLabel>.
 class DraggableShipLabel : public QLabel {
 public:
     int shipId, size;
@@ -115,13 +108,17 @@ protected:
 
 // --- GameWindow ---
 
-GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false)
+GameWindow::GameWindow(QWidget *parent) : QWidget(parent), isBattleStarted(false), isGameOver(false), isAnimating(false)
 {
     setWindowTitle("Морской Бой");
     resize(1000, 750);
-    setMouseTracking(true); // Включаем для самого окна
-    // ИСПРАВЛЕНИЕ: Устанавливаем фильтр на само окно, чтобы ловить мышь везде
-    this->installEventFilter(this);
+    setMouseTracking(true);
+    this->installEventFilter(this); // Ловим мышь глобально для параллакса
+
+    // Таймер тряски
+    shakeTimer = new QTimer(this);
+    shakeTimer->setInterval(30);
+    connect(shakeTimer, &QTimer::timeout, this, &GameWindow::updateShake);
 
     initShips();
 
@@ -143,13 +140,11 @@ QString GameWindow::getRandomPhrase(const QStringList &list) {
     return list[index];
 }
 
-// Перехват событий мыши для параллакса
 bool GameWindow::eventFilter(QObject *watched, QEvent *event) {
     if (event->type() == QEvent::MouseMove) {
-        // Получаем глобальную позицию курсора и переводим в координаты окна
         QPoint globalPos = QCursor::pos();
         mousePos = this->mapFromGlobal(globalPos);
-        update(); // Обновляем фон
+        update();
     }
     return QWidget::eventFilter(watched, event);
 }
@@ -279,11 +274,9 @@ void GameWindow::setupUI() {
 
     // Game Content
     QWidget *gameContentWidget = new QWidget(this);
-    // Устанавливаем фильтр событий на контейнер игры, чтобы ловить мышь над ним
     gameContentWidget->installEventFilter(this);
-    // ИСПРАВЛЕНИЕ: Включаем трекинг для контейнера, чтобы параллакс работал между виджетами
-    gameContentWidget->setMouseTracking(true);
     gameContentWidget->setStyleSheet("background: transparent;");
+    gameContentWidget->setMouseTracking(true);
 
     QHBoxLayout *mainLayout = new QHBoxLayout(gameContentWidget);
     mainLayout->setContentsMargins(30, 10, 30, 20);
@@ -297,8 +290,6 @@ void GameWindow::setupUI() {
     playerMessage = new MessageBubble(this);
 
     QVBoxLayout *playerAvatarLayout = new QVBoxLayout();
-    // Фиксируем высоту лейаута аватара, чтобы при скрытии/показе аватара не прыгало (если вдруг решим скрывать)
-    // Но мы скрываем только аватар, а MessageBubble оставляем прозрачным.
     playerAvatarLayout->addWidget(playerMessage, 0, Qt::AlignCenter);
     playerAvatarLayout->addWidget(playerAvatar, 0, Qt::AlignCenter);
 
@@ -311,8 +302,10 @@ void GameWindow::setupUI() {
     playerBoard->setEditable(true);
     playerBoard->setShowShips(true);
     playerBoard->setupSizePolicy();
-    // Устанавливаем фильтр на доску, чтобы мышь работала и над ней
     playerBoard->installEventFilter(this);
+
+    // СИГНАЛ УДАРА ОТ БОТА
+    connect(playerBoard, &BoardWidget::missileImpact, this, &GameWindow::onMissileImpact);
 
     leftLayout->addLayout(playerAvatarLayout);
     leftLayout->addSpacing(10);
@@ -323,8 +316,7 @@ void GameWindow::setupUI() {
     // --- ЦЕНТРАЛЬНАЯ КОЛОНКА (МАГАЗИН) ---
     centerWidget = new QWidget();
     centerWidget->setFixedWidth(280);
-    centerWidget->installEventFilter(this); // И над магазином
-    // ИСПРАВЛЕНИЕ: Включаем трекинг для магазина
+    centerWidget->installEventFilter(this);
     centerWidget->setMouseTracking(true);
     centerWidget->setStyleSheet("background-color: rgba(255, 250, 240, 200); border: 2px dashed #aaa; border-radius: 5px;");
     QVBoxLayout *centerLayout = new QVBoxLayout(centerWidget);
@@ -344,7 +336,6 @@ void GameWindow::setupUI() {
         shipsLayout->addWidget(shipLabel, 0, Qt::AlignCenter);
     }
 
-    // Кнопка случайной расстановки
     randomPlaceBtn = new QPushButton("АВТО-РАССТАНОВКА");
     randomPlaceBtn->setMinimumHeight(40);
     randomPlaceBtn->setCursor(Qt::PointingHandCursor);
@@ -371,7 +362,7 @@ void GameWindow::setupUI() {
     centerLayout->addWidget(infoLabel);
     centerLayout->addWidget(shipsSetupPanel);
     centerLayout->addStretch();
-    centerLayout->addWidget(randomPlaceBtn); // Добавили кнопку
+    centerLayout->addWidget(randomPlaceBtn);
     centerLayout->addWidget(startBattleBtn);
     centerLayout->addWidget(finishGameBtn);
 
@@ -399,8 +390,11 @@ void GameWindow::setupUI() {
     enemyBoard->setupSizePolicy();
     enemyBoard->installEventFilter(this);
 
-    // ИСПРАВЛЕНИЕ: Подключаем сигнал клика по вражеской доске к слоту атаки
+    // --- ИСПРАВЛЕНИЕ: Гарантируем подключение сигналов ---
+    // 1. Клик по доске вызывает проверку и старт анимации
     connect(enemyBoard, &BoardWidget::cellClicked, this, &GameWindow::onPlayerBoardClick);
+    // 2. Окончание анимации вызывает расчет попадания
+    connect(enemyBoard, &BoardWidget::missileImpact, this, &GameWindow::onMissileImpact);
 
     rightLayout->addLayout(enemyAvatarLayout);
     rightLayout->addSpacing(10);
@@ -416,16 +410,12 @@ void GameWindow::setupUI() {
 }
 
 void GameWindow::onRandomPlaceClicked() {
-    // Авторасстановка
     if (playerBoard->autoPlaceShips()) {
-        // Если успешно, скрываем корабли в магазине
-        // ИСПРАВЛЕНИЕ: Ищем QLabel*, так как DraggableShipLabel не имеет макроса Q_OBJECT
-        // и findChildren с ним вызывает static assertion failure.
         QList<QLabel*> labels = shipsSetupPanel->findChildren<QLabel*>();
         for(auto label : labels) {
             label->hide();
         }
-        playerBoard->update(); // Перерисовать доску
+        playerBoard->update();
     } else {
         QMessageBox::warning(this, "Ошибка", "Не удалось расставить корабли. Попробуйте еще раз.");
     }
@@ -468,10 +458,12 @@ void GameWindow::onStartBattleClicked() {
     enemyAvatar->show();
 
     playerBoard->setEditable(false);
+    // ВАЖНО: Включаем доску противника, чтобы она могла принимать клики
     enemyBoard->setEnabled(true);
     exitToMenuBtn->setText("СДАТЬСЯ");
 
     isBattleStarted = true;
+    isAnimating = false; // Сбрасываем флаг анимации, чтобы разрешить ввод
     isPlayerTurn = (QRandomGenerator::global()->bounded(2) == 0);
 
     if (isPlayerTurn) playerMessage->showMessage("Я НАЧИНАЮ!");
@@ -481,42 +473,48 @@ void GameWindow::onStartBattleClicked() {
     if(!isPlayerTurn) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
 }
 
+// Клик игрока: ЗАПУСКАЕМ АНИМАЦИЮ
 void GameWindow::onPlayerBoardClick(int x, int y) {
-    if(!isBattleStarted || !isPlayerTurn || isGameOver) return;
-    int res = enemyBoard->receiveShot(x, y);
-    if (res == -1) return;
+    // Проверка: бой идет, ход игрока, игра не окончена, анимация не идет
+    if(!isBattleStarted || !isPlayerTurn || isGameOver || isAnimating) return;
 
-    if (res == 0) {
-        playerMessage->showMessage(getRandomPhrase(missPhrases));
-        isPlayerTurn = false;
-        updateTurnVisuals();
-        QTimer::singleShot(800, this, &GameWindow::enemyTurn);
-    } else if (res > 0) {
-        if (res == 1) playerMessage->showMessage(getRandomPhrase(hitPhrases));
-        if (res == 2) playerMessage->showMessage(getRandomPhrase(killPhrases));
+    // Проверка: можно ли стрелять в эту клетку
+    if (!enemyBoard->canShootAt(x, y)) return;
 
-        checkGameStatus();
-    }
+    isAnimating = true; // Блокируем ввод
+    enemyBoard->setActive(false); // Визуально гасим
+    enemyBoard->animateShot(x, y); // Старт анимации
 }
 
-void GameWindow::enemyTurn() {
-    if(isPlayerTurn || !isBattleStarted || isGameOver) return;
-    int x, y, res = -1;
-    while (res == -1) {
-        if (!enemyTargetQueue.isEmpty()) {
-            QPoint target = enemyTargetQueue.takeFirst();
-            x = target.x(); y = target.y();
-            if (x < 0 || x > 9 || y < 0 || y > 9) continue;
-        } else {
-            x = QRandomGenerator::global()->bounded(10);
-            y = QRandomGenerator::global()->bounded(10);
+// Обработка попадания (после анимации)
+void GameWindow::onMissileImpact(int x, int y, bool isHit) {
+    BoardWidget* targetBoard = qobject_cast<BoardWidget*>(sender());
+    if (!targetBoard) return;
+
+    int res = targetBoard->receiveShot(x, y);
+    isAnimating = false; // Разблокируем ввод
+
+    if (res > 0) shakeScreen();
+
+    if (targetBoard == enemyBoard) { // Игрок стрелял (попал в enemyBoard)
+        if (res == 0) { // Промах
+            playerMessage->showMessage(getRandomPhrase(missPhrases));
+            isPlayerTurn = false;
+            updateTurnVisuals();
+            QTimer::singleShot(800, this, &GameWindow::enemyTurn);
+        } else if (res > 0) { // Попал или убил
+            if (res == 1) playerMessage->showMessage(getRandomPhrase(hitPhrases));
+            if (res == 2) playerMessage->showMessage(getRandomPhrase(killPhrases));
+            checkGameStatus();
+            if (!isGameOver) enemyBoard->setActive(true); // Возвращаем активность для следующего выстрела
         }
-        res = playerBoard->receiveShot(x, y);
-        if (res == 0) {
+    }
+    else if (targetBoard == playerBoard) { // Бот стрелял (попал в playerBoard)
+        if (res == 0) { // Промах
             enemyMessage->showMessage(getRandomPhrase(missPhrases));
             isPlayerTurn = true;
             updateTurnVisuals();
-        } else if (res > 0) {
+        } else if (res > 0) { // Попал или убил
             if (res == 1) enemyMessage->showMessage(getRandomPhrase(hitPhrases));
             if (res == 2) {
                 enemyMessage->showMessage(getRandomPhrase(killPhrases));
@@ -531,8 +529,63 @@ void GameWindow::enemyTurn() {
             }
             checkGameStatus();
             if(!isGameOver) QTimer::singleShot(1500, this, &GameWindow::enemyTurn);
-            break;
         }
+    }
+}
+
+void GameWindow::enemyTurn() {
+    if(isPlayerTurn || !isBattleStarted || isGameOver) return;
+
+    int x, y;
+    bool valid = false;
+    int attempts = 0;
+
+    // Пытаемся найти валидную цель
+    while (!valid && attempts < 100) {
+        attempts++;
+        if (!enemyTargetQueue.isEmpty()) {
+            QPoint target = enemyTargetQueue.first();
+            x = target.x(); y = target.y();
+            if (x < 0 || x > 9 || y < 0 || y > 9 || !playerBoard->canShootAt(x, y)) {
+                enemyTargetQueue.removeFirst(); // Удаляем невалидную цель
+                continue;
+            }
+        } else {
+            x = QRandomGenerator::global()->bounded(10);
+            y = QRandomGenerator::global()->bounded(10);
+        }
+
+        if (playerBoard->canShootAt(x, y)) {
+            valid = true;
+            if (!enemyTargetQueue.isEmpty()) enemyTargetQueue.removeFirst();
+        }
+    }
+
+    if (valid) {
+        playerBoard->animateShot(x, y);
+    } else {
+        // Если совсем не нашли (редкий случай), пропускаем ход или пробуем снова
+        isPlayerTurn = true;
+        updateTurnVisuals();
+    }
+}
+
+void GameWindow::shakeScreen() {
+    if (shakeFrames > 0) return;
+    originalPos = this->pos();
+    shakeFrames = 10;
+    shakeTimer->start();
+}
+
+void GameWindow::updateShake() {
+    if (shakeFrames > 0) {
+        int dx = QRandomGenerator::global()->bounded(10) - 5;
+        int dy = QRandomGenerator::global()->bounded(10) - 5;
+        this->move(originalPos + QPoint(dx, dy));
+        shakeFrames--;
+    } else {
+        this->move(originalPos);
+        shakeTimer->stop();
     }
 }
 

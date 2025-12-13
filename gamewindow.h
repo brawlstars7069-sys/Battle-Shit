@@ -9,7 +9,7 @@
 #include <QTimer>
 #include "boardwidget.h"
 
-// --- КЛАСС АВАТАРА ---
+// Классы-помощники
 class AvatarWidget : public QWidget {
     Q_OBJECT
 public:
@@ -20,7 +20,6 @@ private:
     bool isPlayer;
 };
 
-// --- КЛАСС СООБЩЕНИЯ (ЧАТА) ---
 class MessageBubble : public QLabel {
     Q_OBJECT
 public:
@@ -29,13 +28,11 @@ public:
 private slots:
     void hideMessage();
 protected:
-    // Переопределяем, чтобы не схлопывался
     QSize sizeHint() const override { return QSize(160, 60); }
 private:
     QTimer *hideTimer;
 };
 
-// --- ОСНОВНОЕ ОКНО ---
 class GameWindow : public QWidget
 {
     Q_OBJECT
@@ -48,16 +45,19 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
-    // Переопределяем eventFilter для отслеживания мыши над дочерними виджетами
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void onStartBattleClicked();
-    void onRandomPlaceClicked(); // НОВЫЙ СЛОТ
+    void onRandomPlaceClicked();
     void onPlayerBoardClick(int x, int y);
+    // НОВЫЙ СЛОТ: Обработка удара ракеты
+    void onMissileImpact(int x, int y, bool isHit);
+
     void enemyTurn();
     void onFinishGameClicked();
     void onExitToMenuClicked();
+    void updateShake();
 
 private:
     BoardWidget *playerBoard;
@@ -66,7 +66,7 @@ private:
     QWidget *centerWidget;
     QLabel *infoLabel;
     QPushButton *startBattleBtn;
-    QPushButton *randomPlaceBtn; // НОВАЯ КНОПКА
+    QPushButton *randomPlaceBtn;
     QPushButton *finishGameBtn;
     QWidget *shipsSetupPanel;
 
@@ -82,6 +82,7 @@ private:
     bool isPlayerTurn;
     bool isBattleStarted;
     bool isGameOver;
+    bool isAnimating = false; // Блокировка ввода
 
     QList<QPoint> enemyTargetQueue;
     QList<QPoint> shipHitPoints;
@@ -91,6 +92,12 @@ private:
     QStringList hitPhrases;
     QStringList killPhrases;
     QStringList missPhrases;
+
+    // Тряска экрана
+    QTimer *shakeTimer;
+    QPoint originalPos;
+    int shakeFrames = 0;
+    void shakeScreen();
 
     void addInitialTargets(int x, int y);
     void determineNextTargetLine();
