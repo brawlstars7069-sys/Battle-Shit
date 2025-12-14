@@ -29,6 +29,18 @@ void BoardWidget::clearBoard() {
     update();
 }
 
+// --- НОВЫЕ МЕТОДЫ ---
+void BoardWidget::setFog(bool active) {
+    isFoggy = active;
+    update();
+}
+
+void BoardWidget::setHighlight(QPoint pos) {
+    highlightPos = pos;
+    update();
+}
+// --------------------
+
 QPoint BoardWidget::getGridCoord(QPoint pos) {
     int w = width();
     int h = height();
@@ -38,7 +50,6 @@ QPoint BoardWidget::getGridCoord(QPoint pos) {
     int cellSize = side / 10;
     if (cellSize == 0) return QPoint(-1, -1);
 
-    // ИСПРАВЛЕНИЕ: Строгая проверка, чтобы клик по полям (отступам) не считался кликом по 0-й клетке
     if (pos.x() < MARGIN || pos.y() < 0) return QPoint(-1, -1);
 
     int x = (pos.x() - MARGIN) / cellSize;
@@ -143,19 +154,13 @@ void BoardWidget::drawShipShape(QPainter &p, int size, Orientation orient, QRect
 // --- АНИМАЦИЯ ---
 bool BoardWidget::hasShipAt(int x, int y) { return getShipAt(x, y) != nullptr; }
 
-// Проверка валидности выстрела (чтобы не стрелять в уже битые клетки)
 bool BoardWidget::canShootAt(int x, int y) {
     if (x < 0 || x >= 10 || y < 0 || y >= 10) return false;
-    // Стрелять можно только в Пустоту или в Корабль. В Miss или Hit нельзя.
     return (grid[x][y] == Empty || grid[x][y] == ShipCell);
 }
 
 void BoardWidget::animateShot(int x, int y) {
     if (x < 0 || x > 9 || y < 0 || y > 9) return;
-
-    // ИСПРАВЛЕНИЕ: Разрешаем прерывать стадию взрыва (Exploding),
-    // чтобы быстрые клики не блокировали игру.
-    // Запрещаем только если ракета уже летит (Falling).
     if (currentAnim.state == AnimState::Falling) return;
 
     int side = std::min(width() - MARGIN, height() - MARGIN);
@@ -164,7 +169,6 @@ void BoardWidget::animateShot(int x, int y) {
     currentAnim.state = AnimState::Falling;
     currentAnim.gridPos = QPoint(x, y);
 
-    // Убираем MARGIN из расчета startX, так как painter уже сдвинут
     float startX = x * cellSize + cellSize / 2.0;
     float startY = -40;
 
@@ -235,7 +239,7 @@ void BoardWidget::paintEvent(QPaintEvent *) {
     if (side <= 0) return;
     int cellSize = side / 10;
     int boardSize = cellSize * 10;
-    p.translate(MARGIN, 0); // <-- ВАЖНО: Смещение координат
+    p.translate(MARGIN, 0);
 
     p.setPen(QPen(Qt::black));
     QFont font = p.font(); font.setBold(true); font.setPixelSize(14); p.setFont(font);
@@ -257,6 +261,7 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         p.drawLine(0, i * cellSize, boardSize, i * cellSize);
     }
 
+    // Рисуем корабли
     for (Ship* s : myShips) {
         if (!s->isPlaced()) continue;
         if (showShips || s->isDestroyed()) {
@@ -267,6 +272,7 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         }
     }
 
+    // Рисуем попадания/промахи
     for(int x=0; x<10; ++x) {
         for(int y=0; y<10; ++y) {
             int cx = x * cellSize; int cy = y * cellSize;
@@ -281,6 +287,30 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         }
     }
 
+    // --- ОТРИСОВКА РАДАРА (МЕТКИ) ---
+    if (highlightPos.x() >= 0 && highlightPos.y() >= 0) {
+        int cx = highlightPos.x() * cellSize;
+        int cy = highlightPos.y() * cellSize;
+
+        // Пульсирующая рамка или перекрестие
+        p.setPen(QPen(QColor(46, 204, 113), 3)); // Ярко-зеленый
+        p.setBrush(Qt::NoBrush);
+
+        // Уголки
+        int len = cellSize / 3;
+        p.drawLine(cx, cy, cx + len, cy); p.drawLine(cx, cy, cx, cy + len);
+        p.drawLine(cx + cellSize, cy, cx + cellSize - len, cy); p.drawLine(cx + cellSize, cy, cx + cellSize, cy + len);
+        p.drawLine(cx, cy + cellSize, cx + len, cy + cellSize); p.drawLine(cx, cy + cellSize, cx, cy + cellSize - len);
+        p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize - len, cy + cellSize);
+        p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize, cy + cellSize - len);
+
+        // Центр
+        p.setPen(QPen(QColor(46, 204, 113, 100), 2));
+        p.drawLine(cx + cellSize/2, cy + 5, cx + cellSize/2, cy + cellSize - 5);
+        p.drawLine(cx + 5, cy + cellSize/2, cx + cellSize - 5, cy + cellSize/2);
+    }
+
+    // --- ОТРИСОВКА КУРСОРА ---
     if (isActive && hoverX != -1 && hoverY != -1) {
         p.setPen(QPen(QColor(255, 0, 0), 2)); p.setBrush(Qt::NoBrush);
         int hx = hoverX * cellSize; int hy = hoverY * cellSize; int len = cellSize / 3;
@@ -291,11 +321,18 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         p.drawLine(hx + cellSize, hy + cellSize, hx + cellSize, hy + cellSize - len);
     }
 
+    // --- ТУМАН ВОЙНЫ ---
+    if (isFoggy) {
+        p.fillRect(0, 0, boardSize, boardSize, QColor(200, 200, 200, 220)); // Плотный туман
+        p.setPen(Qt::black);
+        p.setFont(QFont("Courier New", 20, QFont::Bold));
+        p.drawText(QRect(0, 0, boardSize, boardSize), Qt::AlignCenter, "ТУМАН");
+    }
+
     p.setPen(QPen(Qt::black, 2)); p.setBrush(Qt::NoBrush);
     p.drawRect(0, 0, boardSize, boardSize);
 
     if (currentAnim.state != AnimState::Idle) {
-        // Отрисовка происходит в уже смещенной системе координат
         if (currentAnim.state == AnimState::Falling) drawMissile(p);
         else if (currentAnim.state == AnimState::Exploding) drawExplosion(p);
     }
@@ -303,7 +340,11 @@ void BoardWidget::paintEvent(QPaintEvent *) {
 
 int BoardWidget::receiveShot(int x, int y) {
     if (x < 0 || x >= 10 || y < 0 || y >= 10) return -1;
-    if (grid[x][y] != Empty && grid[x][y] != ShipCell) return -1; // Уже стреляли
+
+    // Если уже стреляли, возвращаем -1, но если это Бот под Туманом,
+    // логика GameWindow просто проигнорирует результат или скажет "Мимо".
+    // BoardWidget хранит состояние.
+    if (grid[x][y] != Empty && grid[x][y] != ShipCell) return -1;
 
     Ship* s = getShipAt(x, y);
     if (s) {
@@ -368,7 +409,6 @@ void BoardWidget::mousePressEvent(QMouseEvent *event) {
     QPoint gridPos = getGridCoord(event->pos());
     int x = gridPos.x(); int y = gridPos.y();
 
-    // Если вернул -1, значит клик был мимо сетки
     if (x == -1) return;
 
     if (!isEditable) {

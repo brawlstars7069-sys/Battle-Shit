@@ -9,6 +9,7 @@
 #include <QRandomGenerator>
 #include <QPainter>
 #include <QCursor>
+#include <QRegion>
 
 // --- Реализация AvatarWidget ---
 AvatarWidget::AvatarWidget(bool isPlayer, QWidget *parent)
@@ -32,17 +33,13 @@ void AvatarWidget::paintEvent(QPaintEvent *) {
     int h = height();
     int s = w / 8;
 
-    // Рамка (оставляем как было)
     p.setPen(QPen(Qt::black, 2));
     p.setBrush(QColor(230, 220, 210));
     p.drawRect(0, 0, w, h);
 
-    // Если есть картинка - рисуем её
     if (!avatarImage.isNull() && isPlayer) {
-        // Рисуем с отступом в 4 пикселя, чтобы не перекрывать рамку
         p.drawPixmap(4, 4, w-8, h-8, avatarImage);
     } else {
-        // Стандартная отрисовка 8-бит человечка
         QColor silhouetteColor = isPlayer ? QColor(40, 60, 100) : QColor(100, 40, 40);
         p.setBrush(silhouetteColor);
         p.setPen(Qt::NoPen);
@@ -81,6 +78,240 @@ void MessageBubble::showMessage(const QString &text) {
 void MessageBubble::hideMessage() {
     setText("");
     setStyleSheet("background-color: transparent; border: none; color: transparent;");
+}
+
+// --- Реализация ManaBar ---
+ManaBar::ManaBar(QWidget *parent) : QWidget(parent), currentMana(0) {
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    setMinimumHeight(30);
+
+    // Таймер для тряски при 100% маны
+    shakeTimer = new QTimer(this);
+    shakeTimer->setInterval(30); // 30 мс интервал
+    connect(shakeTimer, &QTimer::timeout, this, &ManaBar::updateShake);
+}
+
+void ManaBar::setMana(int mana) {
+    currentMana = std::clamp(mana, 0, 100);
+
+    // Если мана полная - включаем тряску, если нет - выключаем
+    if (currentMana >= 100) {
+        if (!shakeTimer->isActive()) shakeTimer->start();
+    } else {
+        if (shakeTimer->isActive()) {
+            shakeTimer->stop();
+            shakeOffset = QPoint(0, 0);
+        }
+    }
+    update();
+}
+
+void ManaBar::updateShake() {
+    // Небольшая тряска: -1..1 пиксель
+    int dx = QRandomGenerator::global()->bounded(3) - 1;
+    int dy = QRandomGenerator::global()->bounded(3) - 1;
+    shakeOffset = QPoint(dx, dy);
+    update();
+}
+
+void ManaBar::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    // Применяем смещение тряски
+    p.translate(shakeOffset);
+
+    int w = width();
+    int h = height();
+
+    // Функция для отрисовки формы "пилюли" с лесенкой
+    auto drawPillShape = [&](int width, int height) {
+        // Центр (самая широкая часть)
+        p.drawRect(8, 0, width - 16, height);
+        // Ступеньки к краям (лесенка)
+        p.drawRect(5, 1, width - 10, height - 2);
+        p.drawRect(3, 2, width - 6, height - 4);
+        p.drawRect(2, 3, width - 4, height - 6);
+        p.drawRect(0, 5, width, height - 10);
+    };
+
+    // 1. Рисуем фон (темная подложка)
+    p.setBrush(QColor(40, 40, 40));
+    p.setPen(Qt::NoPen);
+    drawPillShape(w, h);
+
+    // 2. Рисуем заполнение маны
+    if (currentMana > 0) {
+        int fillW = (w) * (float(currentMana) / 100.0);
+
+        QColor manaColor(52, 152, 219);
+        if (currentMana == 100) manaColor = QColor(241, 196, 15);
+
+        // Создаем маску (Region) в форме пилюли, чтобы обрезать прямоугольник заполнения
+        QRegion clipReg;
+        clipReg += QRect(8, 0, w - 16, h);
+        clipReg += QRect(5, 1, w - 10, h - 2);
+        clipReg += QRect(3, 2, w - 6, h - 4);
+        clipReg += QRect(2, 3, w - 4, h - 6);
+        clipReg += QRect(0, 5, w, h - 10);
+
+        p.setClipRegion(clipReg);
+
+        p.setBrush(manaColor);
+        p.drawRect(0, 0, fillW, h);
+
+        // Рисуем блик сверху для объема
+        p.setBrush(QColor(255, 255, 255, 50));
+        p.drawRect(0, 2, fillW, h/3);
+
+        p.setClipping(false);
+    }
+
+    // 3. Белая обводка (пиксельная)
+    // Чтобы сделать обводку, можно нарисовать ту же форму, но линиями,
+    // или просто оставить как есть, так как фон темный.
+    // Добавим легкий контур внутри для стиля
+    /*
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(255,255,255,100), 2));
+    // Упрощенный контур
+    p.drawRect(8, 2, w-16, h-4);
+    */
+
+    p.setPen(Qt::white);
+    QFont f = p.font();
+    f.setBold(true);
+    f.setFamily("Courier New");
+    p.setFont(f);
+    p.drawText(rect(), Qt::AlignCenter, QString("%1 / 100 MP").arg(currentMana));
+}
+
+// --- Реализация AbilityWidget ---
+AbilityWidget::AbilityWidget(int type, int cost, const QString &iconPath, QWidget *parent)
+    : QWidget(parent), type(type), cost(cost), isAvailable(false)
+{
+    setFixedSize(60, 60);
+    setCursor(Qt::ArrowCursor);
+
+    if (!iconPath.isEmpty()) {
+        iconPixmap.load(iconPath);
+    }
+
+    shakeTimer = new QTimer(this);
+    shakeTimer->setInterval(30);
+    connect(shakeTimer, &QTimer::timeout, this, &AbilityWidget::updateShake);
+}
+
+void AbilityWidget::setAvailable(bool available) {
+    if (isAvailable != available) {
+        isAvailable = available;
+        setCursor(isAvailable ? Qt::PointingHandCursor : Qt::ArrowCursor);
+
+        if (!isAvailable) {
+            shakeTimer->stop();
+            shakeOffset = QPoint(0, 0);
+        } else {
+            if (underMouse()) {
+                shakeTimer->start();
+            }
+        }
+        update();
+    }
+}
+
+void AbilityWidget::enterEvent(QEnterEvent *event) {
+    if (isAvailable) {
+        shakeTimer->start();
+    }
+    QWidget::enterEvent(event);
+}
+
+void AbilityWidget::leaveEvent(QEvent *event) {
+    shakeTimer->stop();
+    shakeOffset = QPoint(0, 0);
+    update();
+    QWidget::leaveEvent(event);
+}
+
+void AbilityWidget::updateShake() {
+    int dx = QRandomGenerator::global()->bounded(5) - 2;
+    int dy = QRandomGenerator::global()->bounded(5) - 2;
+    shakeOffset = QPoint(dx, dy);
+    update();
+}
+
+void AbilityWidget::mousePressEvent(QMouseEvent *event) {
+    if (isAvailable && event->button() == Qt::LeftButton) {
+        emit clicked(type);
+    }
+}
+
+void AbilityWidget::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    // Трясем все содержимое
+    p.translate(shakeOffset);
+
+    int w = width();
+    int h = height();
+
+    // Цвета фона
+    QColor baseColor = isAvailable ? QColor(220, 220, 220) : QColor(80, 80, 80);
+
+    // 1. Фон
+    p.setBrush(baseColor);
+    p.setPen(Qt::NoPen);
+    p.drawRect(4, 4, w-8, h-8); // Чуть меньше рамки
+
+    // 2. Иконка
+    if (!iconPixmap.isNull()) {
+        if (!isAvailable) p.setOpacity(0.3);
+        p.drawPixmap(rect().adjusted(6, 6, -6, -6), iconPixmap);
+        p.setOpacity(1.0);
+    } else {
+        // Заглушка (рисование фигур), если нет картинки
+        QColor iconColor;
+        if (!isAvailable) iconColor = QColor(120, 120, 120);
+        else {
+            if (type == 1) iconColor = QColor(46, 204, 113);
+            else if (type == 2) iconColor = QColor(230, 126, 34);
+            else iconColor = QColor(231, 76, 60);
+        }
+        p.setBrush(iconColor);
+        p.setPen(QPen(Qt::black, 2));
+        if (type == 1) {
+            p.drawEllipse(w*0.2, h*0.3, w*0.3, h*0.3);
+            p.drawEllipse(w*0.5, h*0.4, w*0.3, h*0.3);
+        } else if (type == 2) {
+            p.drawEllipse(w*0.2, h*0.2, w*0.6, h*0.6);
+            p.setBrush(Qt::red); p.drawEllipse(w*0.5, h*0.3, 5, 5);
+        } else if (type == 3) {
+            p.drawRect(w*0.3, h*0.2, 10, 30); p.drawRect(w*0.5, h*0.3, 10, 30);
+        }
+    }
+
+    // 3. Пиксельная рамка (Frame)
+    // Внешняя черная обводка
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(Qt::black, 2));
+    p.drawRect(0, 0, w, h);
+
+    // Внутренняя белая рамка (блик)
+    p.setPen(QPen(Qt::white, 2));
+    p.drawRect(2, 2, w-4, h-4);
+
+    // Внутренняя черная рамка
+    p.setPen(QPen(Qt::black, 2));
+    p.drawRect(4, 4, w-8, h-8);
+
+    // Цена маны
+    p.setPen(isAvailable ? Qt::black : Qt::white);
+    QFont f = p.font();
+    f.setPixelSize(10);
+    f.setBold(true);
+    p.setFont(f);
+    p.drawText(rect().adjusted(0,0,-6,-6), Qt::AlignBottom | Qt::AlignRight, QString::number(cost));
 }
 
 
@@ -123,14 +354,13 @@ protected:
 // --- GameWindow ---
 
 GameWindow::GameWindow(const QString &playerAvatarPath, QWidget *parent)
-    : QWidget(parent), isBattleStarted(false), isGameOver(false), isAnimating(false), currentPlayerAvatarPath(playerAvatarPath)
+    : QWidget(parent), isBattleStarted(false), isGameOver(false), isAnimating(false), playerMana(0), currentPlayerAvatarPath(playerAvatarPath)
 {
     setWindowTitle("Морской Бой");
     resize(1000, 750);
     setMouseTracking(true);
-    this->installEventFilter(this); // Ловим мышь глобально для параллакса
+    this->installEventFilter(this);
 
-    // Таймер тряски
     shakeTimer = new QTimer(this);
     shakeTimer->setInterval(30);
     connect(shakeTimer, &QTimer::timeout, this, &GameWindow::updateShake);
@@ -143,7 +373,6 @@ GameWindow::GameWindow(const QString &playerAvatarPath, QWidget *parent)
 
     setupUI();
 
-    // Устанавливаем аватар, если путь передан
     if (!currentPlayerAvatarPath.isEmpty()) {
         playerAvatar->setAvatarImage(currentPlayerAvatarPath);
     }
@@ -331,7 +560,6 @@ void GameWindow::setupUI() {
     playerBoard->setupSizePolicy();
     playerBoard->installEventFilter(this);
 
-    // СИГНАЛ УДАРА ОТ БОТА
     connect(playerBoard, &BoardWidget::missileImpact, this, &GameWindow::onMissileImpact);
 
     leftLayout->addLayout(playerAvatarLayout);
@@ -340,12 +568,19 @@ void GameWindow::setupUI() {
     leftLayout->addWidget(playerBoard);
     leftLayout->addStretch(1);
 
-    // --- ЦЕНТРАЛЬНАЯ КОЛОНКА (МАГАЗИН) ---
+    // --- ЦЕНТРАЛЬНАЯ КОЛОНКА ---
     centerWidget = new QWidget();
     centerWidget->setFixedWidth(280);
     centerWidget->installEventFilter(this);
     centerWidget->setMouseTracking(true);
-    centerWidget->setStyleSheet("background-color: rgba(255, 250, 240, 200); border: 2px dashed #aaa; border-radius: 5px;");
+
+    // --- ОБНОВЛЕННЫЙ СТИЛЬ ЦЕНТРАЛЬНОГО ВИДЖЕТА ---
+    centerWidget->setStyleSheet(
+        "background-color: #f0e6d2; "      // Цвет плотной бумаги/пергамента
+        "border: 4px solid #2c3e50; "       // Жирная темная рамка
+        "border-radius: 0px;"               // Никаких скруглений!
+        );
+
     QVBoxLayout *centerLayout = new QVBoxLayout(centerWidget);
     centerLayout->setContentsMargins(15, 15, 15, 15);
 
@@ -355,6 +590,7 @@ void GameWindow::setupUI() {
     infoLabel->setMinimumHeight(60);
     infoLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 10px; font-family: 'Courier New';");
 
+    // 1. Панель расстановки
     shipsSetupPanel = new QWidget();
     QVBoxLayout *shipsLayout = new QVBoxLayout(shipsSetupPanel);
     shipsLayout->setSpacing(5);
@@ -381,6 +617,40 @@ void GameWindow::setupUI() {
         );
     connect(startBattleBtn, &QPushButton::clicked, this, &GameWindow::onStartBattleClicked);
 
+    // 2. Панель способностей
+    battlePanel = new QWidget();
+    QVBoxLayout *battlePanelLayout = new QVBoxLayout(battlePanel);
+    battlePanelLayout->setAlignment(Qt::AlignCenter);
+    battlePanelLayout->setSpacing(15);
+
+    manaBar = new ManaBar(battlePanel);
+
+    QWidget *abilitiesContainer = new QWidget(battlePanel);
+    QVBoxLayout *absLayout = new QVBoxLayout(abilitiesContainer);
+    absLayout->setSpacing(10);
+    absLayout->setAlignment(Qt::AlignCenter);
+
+    // --- ЗДЕСЬ УКАЗЫВАЮТСЯ ПУТИ К КАРТИНКАМ ---
+    ability1 = new AbilityWidget(1, 60, ":/images/fog.png");
+    ability2 = new AbilityWidget(2, 80, ":/images/radar.png");
+    ability3 = new AbilityWidget(3, 100, ":/images/airstrike.png");
+
+    connect(ability1, &AbilityWidget::clicked, this, &GameWindow::onAbilityClicked);
+    connect(ability2, &AbilityWidget::clicked, this, &GameWindow::onAbilityClicked);
+    connect(ability3, &AbilityWidget::clicked, this, &GameWindow::onAbilityClicked);
+
+    absLayout->addWidget(ability1);
+    absLayout->addWidget(ability2);
+    absLayout->addWidget(ability3);
+
+    battlePanelLayout->addWidget(new QLabel("МАНА"));
+    battlePanelLayout->addWidget(manaBar);
+    battlePanelLayout->addSpacing(10);
+    battlePanelLayout->addWidget(new QLabel("СПОСОБНОСТИ"));
+    battlePanelLayout->addWidget(abilitiesContainer);
+
+    battlePanel->hide();
+
     finishGameBtn = new QPushButton("РЕЗУЛЬТАТ");
     finishGameBtn->setMinimumHeight(50);
     finishGameBtn->hide();
@@ -388,9 +658,10 @@ void GameWindow::setupUI() {
 
     centerLayout->addWidget(infoLabel);
     centerLayout->addWidget(shipsSetupPanel);
-    centerLayout->addStretch();
     centerLayout->addWidget(randomPlaceBtn);
     centerLayout->addWidget(startBattleBtn);
+    centerLayout->addWidget(battlePanel);
+    centerLayout->addStretch();
     centerLayout->addWidget(finishGameBtn);
 
     // --- ПРАВАЯ КОЛОНКА (ВРАГ) ---
@@ -458,6 +729,8 @@ void GameWindow::updateTurnVisuals() {
         enemyAvatar->setStyleSheet("border: none;");
         enemyBoard->setActive(true);
         playerBoard->setActive(false);
+        // Если активирован кластерный режим, меняем курсор или сообщение
+        if (isClusterMode) enemyMessage->showMessage("АВИАУДАР ГОТОВ!");
     } else {
         enemyAvatar->setStyleSheet("border: 2px solid yellow;");
         playerAvatar->setStyleSheet("border: none;");
@@ -466,7 +739,6 @@ void GameWindow::updateTurnVisuals() {
     }
 }
 
-// ИЗМЕНЕНО: Теперь запускаем мини-игру К-Н-Б
 void GameWindow::onStartBattleClicked() {
     for(auto s : playerShips) {
         if(!s->isPlaced()) {
@@ -475,21 +747,28 @@ void GameWindow::onStartBattleClicked() {
         }
     }
 
-    // Подготовка доски врага
     if(!enemyBoard->autoPlaceShips()) enemyBoard->autoPlaceShips();
 
-    // Скрываем центральную панель сразу, чтобы не мешала под оверлеем
     centerWidget->setVisible(false);
 
-    // Создаем оверлей мини-игры
     rpsOverlay = new RPSWidget(this);
     connect(rpsOverlay, &RPSWidget::gameFinished, this, &GameWindow::startGameAfterRPS);
     rpsOverlay->show();
 }
 
-// НОВЫЙ СЛОТ: Запускает сам бой после К-Н-Б
 void GameWindow::startGameAfterRPS(bool playerFirst) {
-    rpsOverlay = nullptr; // Виджет удаляется сам через deleteLater()
+    rpsOverlay = nullptr;
+
+    centerWidget->setVisible(true);
+    shipsSetupPanel->hide();
+    startBattleBtn->hide();
+    randomPlaceBtn->hide();
+    battlePanel->show();
+
+    resetMana();
+
+    infoLabel->setText("БОЙ!");
+    infoLabel->setStyleSheet("color: #e74c3c; font-size: 22px; font-weight: bold; border-bottom: 2px solid #ccc; font-family: 'Courier New';");
 
     playerAvatar->show();
     enemyAvatar->show();
@@ -500,7 +779,7 @@ void GameWindow::startGameAfterRPS(bool playerFirst) {
 
     isBattleStarted = true;
     isAnimating = false;
-    isPlayerTurn = playerFirst; // Результат из К-Н-Б
+    isPlayerTurn = playerFirst;
 
     if (isPlayerTurn) playerMessage->showMessage("Я НАЧИНАЮ!");
     else enemyMessage->showMessage("МОЙ ХОД!");
@@ -509,48 +788,183 @@ void GameWindow::startGameAfterRPS(bool playerFirst) {
     if(!isPlayerTurn) QTimer::singleShot(800, this, &GameWindow::enemyTurn);
 }
 
-// Клик игрока: ЗАПУСКАЕМ АНИМАЦИЮ
-void GameWindow::onPlayerBoardClick(int x, int y) {
-    // Проверка: бой идет, ход игрока, игра не окончена, анимация не идет
-    if(!isBattleStarted || !isPlayerTurn || isGameOver || isAnimating) return;
+// --- ЛОГИКА СПОСОБНОСТЕЙ ---
 
-    // Проверка: можно ли стрелять в эту клетку
-    if (!enemyBoard->canShootAt(x, y)) return;
+void GameWindow::onAbilityClicked(int type) {
+    if (!isPlayerTurn || isAnimating || isGameOver) return;
 
-    isAnimating = true; // Блокируем ввод
-    enemyBoard->setActive(false); // Визуально гасим
-    enemyBoard->animateShot(x, y); // Старт анимации
+    if (type == 1 && playerMana >= 60) activateFog();
+    else if (type == 2 && playerMana >= 80) activateRadar();
+    else if (type == 3 && playerMana >= 100) activateCluster();
 }
 
-// Обработка попадания (после анимации)
+void GameWindow::activateFog() {
+    isFogActive = true;
+    addMana(-60);
+    playerBoard->setFog(true); // Визуальный туман на поле игрока
+    playerMessage->showMessage("ТУМАН!");
+}
+
+void GameWindow::activateRadar() {
+    // Ищем живой корабль врага
+    QVector<QPoint> possibleCells;
+    for(int x=0; x<10; ++x) {
+        for(int y=0; y<10; ++y) {
+            // Клетка с кораблем, которая еще не подбита (не Hit)
+            if (enemyBoard->hasShipAt(x, y) && enemyBoard->getCellState(x, y) != Hit) {
+                possibleCells.append(QPoint(x, y));
+            }
+        }
+    }
+
+    if (!possibleCells.isEmpty()) {
+        int idx = QRandomGenerator::global()->bounded(possibleCells.size());
+        radarCell = possibleCells[idx];
+
+        isRadarActive = true;
+        addMana(-80);
+
+        enemyBoard->setHighlight(radarCell);
+        playerMessage->showMessage("РАДАР: ЦЕЛЬ!");
+    } else {
+        playerMessage->showMessage("НЕКОГО ИСКАТЬ!");
+    }
+}
+
+void GameWindow::activateCluster() {
+    isClusterMode = true;
+    addMana(-100);
+    playerMessage->showMessage("КЛАСТЕРНЫЙ УДАР!");
+    updateTurnVisuals();
+}
+
+void GameWindow::onPlayerBoardClick(int x, int y) {
+    if(!isBattleStarted || !isPlayerTurn || isGameOver || isAnimating) return;
+    if (!enemyBoard->canShootAt(x, y) && !isClusterMode) return;
+
+    // Сброс подсветки радара, если попали в ту же клетку
+    if (isRadarActive && x == radarCell.x() && y == radarCell.y()) {
+        isRadarActive = false;
+        radarCell = QPoint(-1, -1);
+        enemyBoard->setHighlight(QPoint(-1, -1));
+    }
+
+    if (isClusterMode) {
+        // Запуск серии ударов
+        isClusterMode = false; // Режим одноразовый
+        isClusterExecuting = true;
+        clusterQueue.clear();
+        clusterHitsCount = 0;
+
+        // Центр
+        clusterQueue.append(QPoint(x, y));
+        // Вокруг (8 клеток)
+        int dx[] = {-1, 0, 1, -1, 1, -1, 0, 1};
+        int dy[] = {-1, -1, -1, 0, 0, 1, 1, 1};
+
+        for(int i=0; i<8; ++i) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+            // Добавляем, даже если там уже стреляли (для красоты анимации),
+            // но важно проверять границы
+            if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10) {
+                clusterQueue.append(QPoint(nx, ny));
+            }
+        }
+
+        isAnimating = true;
+        enemyBoard->setActive(false);
+        processClusterShot();
+    } else {
+        // Обычный выстрел
+        isAnimating = true;
+        enemyBoard->setActive(false);
+        enemyBoard->animateShot(x, y);
+    }
+}
+
+void GameWindow::processClusterShot() {
+    if (clusterQueue.isEmpty()) {
+        // Серия закончена
+        isClusterExecuting = false;
+        isAnimating = false;
+
+        // Если было хотя бы одно попадание - продолжаем ход
+        if (clusterHitsCount > 0) {
+            playerMessage->showMessage("СЕРИЯ: УСПЕХ!");
+            enemyBoard->setActive(true);
+            checkGameStatus();
+        } else {
+            // Иначе промах
+            playerMessage->showMessage(getRandomPhrase(missPhrases));
+            addMana(20);
+            isPlayerTurn = false;
+            updateTurnVisuals();
+            QTimer::singleShot(800, this, &GameWindow::enemyTurn);
+        }
+        return;
+    }
+
+    QPoint target = clusterQueue.takeFirst();
+    // Запускаем анимацию следующего выстрела
+    // Даже если там уже стреляли, animateShot отработает, а receiveShot вернет -1
+    enemyBoard->animateShot(target.x(), target.y());
+}
+
 void GameWindow::onMissileImpact(int x, int y, bool isHit) {
     BoardWidget* targetBoard = qobject_cast<BoardWidget*>(sender());
     if (!targetBoard) return;
 
     int res = targetBoard->receiveShot(x, y);
-    isAnimating = false; // Разблокируем ввод
+    // res: -1 (already), 0 (miss), 1 (hit), 2 (kill)
 
     if (res > 0) shakeScreen();
 
-    if (targetBoard == enemyBoard) { // Игрок стрелял (попал в enemyBoard)
+    // --- ЛОГИКА ИГРОКА ---
+    if (targetBoard == enemyBoard) {
+
+        if (isClusterExecuting) {
+            if (res > 0) clusterHitsCount++;
+            // Рекурсивный вызов следующего выстрела с небольшой задержкой
+            QTimer::singleShot(150, this, &GameWindow::processClusterShot);
+            return;
+        }
+
+        // Обычный выстрел
+        isAnimating = false;
+
         if (res == 0) { // Промах
             playerMessage->showMessage(getRandomPhrase(missPhrases));
+            addMana(20);
             isPlayerTurn = false;
             updateTurnVisuals();
             QTimer::singleShot(800, this, &GameWindow::enemyTurn);
-        } else if (res > 0) { // Попал или убил
+        } else if (res > 0) { // Попал
+            resetMana();
             if (res == 1) playerMessage->showMessage(getRandomPhrase(hitPhrases));
             if (res == 2) playerMessage->showMessage(getRandomPhrase(killPhrases));
             checkGameStatus();
-            if (!isGameOver) enemyBoard->setActive(true); // Возвращаем активность для следующего выстрела
+            if (!isGameOver) enemyBoard->setActive(true);
+        } else {
+            // Если выстрел в уже простреленную клетку (по ошибке), просто разблокируем
+            if (!isGameOver) enemyBoard->setActive(true);
         }
     }
-    else if (targetBoard == playerBoard) { // Бот стрелял (попал в playerBoard)
-        if (res == 0) { // Промах
+    // --- ЛОГИКА БОТА ---
+    else if (targetBoard == playerBoard) {
+        if (res == 0 || res == -1) { // Промах (или удар в уже битую клетку из-за тумана)
             enemyMessage->showMessage(getRandomPhrase(missPhrases));
+
+            // Если это был ход бота и активен туман -> туман спадает
+            if (isFogActive) {
+                isFogActive = false;
+                playerBoard->setFog(false);
+                playerMessage->showMessage("ТУМАН РАССЕЯЛСЯ");
+            }
+
             isPlayerTurn = true;
             updateTurnVisuals();
-        } else if (res > 0) { // Попал или убил
+        } else if (res > 0) { // Попал
             if (res == 1) enemyMessage->showMessage(getRandomPhrase(hitPhrases));
             if (res == 2) {
                 enemyMessage->showMessage(getRandomPhrase(killPhrases));
@@ -569,6 +983,25 @@ void GameWindow::onMissileImpact(int x, int y, bool isHit) {
     }
 }
 
+void GameWindow::addMana(int amount) {
+    playerMana += amount;
+    if (playerMana > 100) playerMana = 100;
+    manaBar->setMana(playerMana);
+    updateAbilitiesState();
+}
+
+void GameWindow::resetMana() {
+    playerMana = 0;
+    manaBar->setMana(playerMana);
+    updateAbilitiesState();
+}
+
+void GameWindow::updateAbilitiesState() {
+    ability1->setAvailable(playerMana >= ability1->getCost());
+    ability2->setAvailable(playerMana >= ability2->getCost());
+    ability3->setAvailable(playerMana >= ability3->getCost());
+}
+
 void GameWindow::enemyTurn() {
     if(isPlayerTurn || !isBattleStarted || isGameOver) return;
 
@@ -576,29 +1009,42 @@ void GameWindow::enemyTurn() {
     bool valid = false;
     int attempts = 0;
 
-    while (!valid && attempts < 100) {
-        attempts++;
-        if (!enemyTargetQueue.isEmpty()) {
-            QPoint target = enemyTargetQueue.first();
-            x = target.x(); y = target.y();
-            if (x < 0 || x > 9 || y < 0 || y > 9 || !playerBoard->canShootAt(x, y)) {
-                enemyTargetQueue.removeFirst(); // Удаляем невалидную цель
-                continue;
+    // --- ЛОГИКА ТУМАНА ---
+    if (isFogActive) {
+        // Бот стреляет абсолютно случайно, может попасть в уже битую клетку
+        // Он "забыл" карту
+        x = QRandomGenerator::global()->bounded(10);
+        y = QRandomGenerator::global()->bounded(10);
+        // Мы НЕ проверяем canShootAt, так как он не видит старых выстрелов
+        valid = true;
+    }
+    // --- ОБЫЧНАЯ ЛОГИКА ---
+    else {
+        while (!valid && attempts < 100) {
+            attempts++;
+            if (!enemyTargetQueue.isEmpty()) {
+                QPoint target = enemyTargetQueue.first();
+                x = target.x(); y = target.y();
+                if (x < 0 || x > 9 || y < 0 || y > 9 || !playerBoard->canShootAt(x, y)) {
+                    enemyTargetQueue.removeFirst();
+                    continue;
+                }
+            } else {
+                x = QRandomGenerator::global()->bounded(10);
+                y = QRandomGenerator::global()->bounded(10);
             }
-        } else {
-            x = QRandomGenerator::global()->bounded(10);
-            y = QRandomGenerator::global()->bounded(10);
-        }
 
-        if (playerBoard->canShootAt(x, y)) {
-            valid = true;
-            if (!enemyTargetQueue.isEmpty()) enemyTargetQueue.removeFirst();
+            if (playerBoard->canShootAt(x, y)) {
+                valid = true;
+                if (!enemyTargetQueue.isEmpty()) enemyTargetQueue.removeFirst();
+            }
         }
     }
 
     if (valid) {
         playerBoard->animateShot(x, y);
     } else {
+        // Если совсем некуда стрелять (редкий случай конца игры), передаем ход
         isPlayerTurn = true;
         updateTurnVisuals();
     }
@@ -636,11 +1082,12 @@ void GameWindow::endGame(bool playerWon) {
     enemyBoard->setEnabled(false);
     exitToMenuBtn->setText("В МЕНЮ");
 
-    // Скрываем ненужные элементы панели
     shipsSetupPanel->hide();
     startBattleBtn->hide();
     randomPlaceBtn->hide();
-    infoLabel->show(); // Убеждаемся, что лейбл виден
+    battlePanel->hide();
+
+    infoLabel->show();
 
     finishGameBtn->show();
     centerWidget->setVisible(true);

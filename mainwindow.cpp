@@ -6,7 +6,7 @@
 #include <cmath>
 #include <QDebug>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backgroundOffset(0)
 {
     setObjectName("menuWindow");
 
@@ -25,6 +25,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setupUI();
     setWindowTitle("Морской Бой - 8-BIT EDITION");
     resize(600, 500);
+}
+
+// Сеттер для свойства анимации фона
+void MainWindow::setBackgroundOffset(float offset) {
+    backgroundOffset = offset;
+    update(); // Перерисовываем окно при изменении значения
 }
 
 void MainWindow::setupUI()
@@ -227,6 +233,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
         menuContainer->resize(s);
         settingsContainer->resize(s);
         settingsContainer->move(-s.width(), 0); // Прячем слева
+        // Сбрасываем оффсет фона если мы в меню
+        if (getBackgroundOffset() != 0) setBackgroundOffset(0);
     }
     // Если настройки активны (находятся в 0,0)
     else if (settingsContainer->pos().x() == 0) {
@@ -261,14 +269,31 @@ void MainWindow::paintEvent(QPaintEvent *)
     int shiftX = (mousePos.x() - w/2) * 0.05;
     int shiftY = (mousePos.y() - h/2) * 0.05;
 
-    auto drawPixelShip = [&](int x, int y, int size, QColor color) {
+    // Ширина цикла для фона (экран + буфер для плавного появления)
+    int cycleWidth = w + 200;
+
+    auto drawPixelShip = [&](int originalX, int y, int size, QColor color) {
         p.setBrush(color);
         p.setPen(Qt::NoPen);
         int s = size;
         int shipShiftX = shiftX * 0.5;
-        p.drawRect(x + shipShiftX, y, s*6, s);
-        p.drawRect(x + s + shipShiftX, y-s, s*4, s);
-        p.drawRect(x + s*2 + shipShiftX, y-s*2, s, s);
+
+        // --- ЛОГИКА ПРОКРУТКИ КОРАБЛЕЙ ---
+        // Добавляем backgroundOffset к позиции
+        int currentX = originalX + (int)backgroundOffset;
+
+        // Зацикливаем координату X
+        // Используем сложный модуль, чтобы корректно обрабатывать отрицательные числа при сдвиге
+        int wrappedX = ((currentX % cycleWidth) + cycleWidth) % cycleWidth;
+
+        // Сдвигаем обратно на -100, чтобы компенсировать буфер и позволить выплывать из-за левого края
+        wrappedX -= 100;
+
+        int finalX = wrappedX + shipShiftX;
+
+        p.drawRect(finalX, y, s*6, s);
+        p.drawRect(finalX + s, y-s, s*4, s);
+        p.drawRect(finalX + s*2, y-s*2, s, s);
     };
 
     drawPixelShip(w*0.1, h*0.2, 5, QColor(200, 190, 180));
@@ -281,9 +306,20 @@ void MainWindow::paintEvent(QPaintEvent *)
     for (int y = 50; y < h; y += 40) {
         int rowShift = shiftX * (float(y)/h);
         for (int x = -50; x < w + 50; x += 20) {
-            int finalX = x + rowShift;
-            finalX = (finalX % (w + 100));
-            if (finalX < -50) finalX += (w + 100);
+
+            // --- ЛОГИКА ПРОКРУТКИ ВОЛН ---
+            int bgShift = (int)backgroundOffset;
+            int finalX = x + rowShift + bgShift;
+
+            // Зацикливаем волны. Используем ширину окна + запас 100
+            int waveCycle = w + 100;
+            finalX = (finalX % waveCycle + waveCycle) % waveCycle;
+
+            // Если ушли слишком далеко вправо из-за модуля, сдвигаем влево для заполнения дыры
+            if (finalX > w + 50) finalX -= waveCycle;
+            // Коррекция для начала (чтобы не было пустой полосы слева при старте)
+            if (finalX > w) finalX -= waveCycle;
+
             p.drawRect(finalX, y + shiftY * 0.2, pixelSize, pixelSize);
             p.drawRect(finalX + pixelSize, y + pixelSize + shiftY * 0.2, pixelSize, pixelSize);
         }
@@ -313,8 +349,17 @@ void MainWindow::onSettingsClicked() {
     animSettings->setEndValue(QPoint(0, 0));
     animSettings->setEasingCurve(QEasingCurve::InOutQuad);
 
+    // --- АНИМАЦИЯ ФОНА (ВПРАВО) ---
+    // Фон сдвигается на ширину экрана вправо, создавая эффект уплывания
+    animBackground = new QPropertyAnimation(this, "backgroundOffset", this);
+    animBackground->setDuration(500);
+    animBackground->setStartValue(backgroundOffset); // Обычно 0
+    animBackground->setEndValue((float)width());     // Сдвигаем на ширину экрана
+    animBackground->setEasingCurve(QEasingCurve::InOutQuad);
+
     animMenu->start(QAbstractAnimation::DeleteWhenStopped);
     animSettings->start(QAbstractAnimation::DeleteWhenStopped);
+    animBackground->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onBackFromSettingsClicked() {
@@ -337,8 +382,17 @@ void MainWindow::onBackFromSettingsClicked() {
     animSettings->setEndValue(QPoint(-width(), 0));
     animSettings->setEasingCurve(QEasingCurve::InOutQuad);
 
+    // --- АНИМАЦИЯ ФОНА (ОБРАТНО ВЛЕВО) ---
+    // Возвращаем фон в исходное положение
+    animBackground = new QPropertyAnimation(this, "backgroundOffset", this);
+    animBackground->setDuration(500);
+    animBackground->setStartValue(backgroundOffset); // Текущее (width)
+    animBackground->setEndValue(0.0f);               // Обратно в 0
+    animBackground->setEasingCurve(QEasingCurve::InOutQuad);
+
     animMenu->start(QAbstractAnimation::DeleteWhenStopped);
     animSettings->start(QAbstractAnimation::DeleteWhenStopped);
+    animBackground->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onChangeAvatarClicked() {

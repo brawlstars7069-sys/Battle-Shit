@@ -18,10 +18,16 @@ class GameWindow;
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
+    // Регистрируем свойство для анимации фона
+    Q_PROPERTY(float backgroundOffset READ getBackgroundOffset WRITE setBackgroundOffset)
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override = default;
+
+    // Геттер и сеттер для свойства анимации
+    float getBackgroundOffset() const { return backgroundOffset; }
+    void setBackgroundOffset(float offset);
 
 protected:
     // Отрисовка фона
@@ -65,7 +71,11 @@ private:
     // Состояние
     QString selectedAvatarPath;
 
-    // Анимации
+    // Переменные для анимации фона
+    float backgroundOffset;
+    QPropertyAnimation *animBackground;
+
+    // Анимации виджетов
     QPropertyAnimation *animMenu;
     QPropertyAnimation *animSettings;
 };
