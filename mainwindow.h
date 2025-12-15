@@ -12,29 +12,30 @@
 #include <QPropertyAnimation>
 #include <QScrollArea>
 #include <QGridLayout>
+#include <QListWidget>
+#include "loginwindow.h"
 
 class GameWindow;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
-    // Регистрируем свойство для анимации фона
     Q_PROPERTY(float backgroundOffset READ getBackgroundOffset WRITE setBackgroundOffset)
+    Q_PROPERTY(float backgroundOffsetY READ getBackgroundOffsetY WRITE setBackgroundOffsetY)
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override = default;
 
-    // Геттер и сеттер для свойства анимации
     float getBackgroundOffset() const { return backgroundOffset; }
     void setBackgroundOffset(float offset);
 
+    float getBackgroundOffsetY() const { return backgroundOffsetY; }
+    void setBackgroundOffsetY(float offset);
+
 protected:
-    // Отрисовка фона
     void paintEvent(QPaintEvent *event) override;
-    // Отслеживание мыши для эффекта параллакса
     void mouseMoveEvent(QMouseEvent *event) override;
-    // Обновляем геометрию виджетов при ресайзе
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
@@ -43,41 +44,51 @@ private slots:
     void onSettingsClicked();
     void onExitClicked();
 
-    // Новые слоты
     void onBackFromSettingsClicked();
     void onAvatarSelected(const QString &path);
     void onChangeAvatarClicked();
+
+    void onBackFromMultiplayerClicked();
+    void onCreateServerClicked();
+    void onConnectClicked();
+
+    // Слот для успешной регистрации
+    void onRegistrationFinished();
 
 private:
     void setupUI();
     void setupMenuContainer();
     void setupSettingsContainer();
+    void setupMultiplayerContainer();
 
-    // Методы анимации
-    void slideToSettings();
-    void slideToMenu();
+    // Метод для запуска анимации мультиплеера (выделил отдельно)
+    void startMultiplayerAnimation();
 
-    QPoint mousePos; // Текущая позиция мыши
+    QPoint mousePos;
 
-    // Контейнеры интерфейса
     QWidget *menuContainer;
     QWidget *settingsContainer;
+    QWidget *multiplayerContainer;
 
-    // Элементы настроек
-    QWidget *avatarSelectionWidget; // Виджет с сеткой аватаров
+    QWidget *avatarSelectionWidget;
     QPushButton *btnChangeAvatar;
     QLabel *currentAvatarPreview;
+    QListWidget *serverListWidget;
 
-    // Состояние
     QString selectedAvatarPath;
 
-    // Переменные для анимации фона
     float backgroundOffset;
-    QPropertyAnimation *animBackground;
+    float backgroundOffsetY;
 
-    // Анимации виджетов
+    QPropertyAnimation *animBackground;
+    QPropertyAnimation *animBackgroundY;
     QPropertyAnimation *animMenu;
     QPropertyAnimation *animSettings;
+    QPropertyAnimation *animMultiplayer;
+
+    // Окно регистрации и флаг статуса
+    LoginWindow *loginWindow;
+    bool isUserRegistered;
 };
 
 #endif // MAINWINDOW_H

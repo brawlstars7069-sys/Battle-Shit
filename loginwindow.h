@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QRegularExpression>
 
 class LoginWindow : public QWidget
 {
@@ -29,6 +30,7 @@ private:
     QPushButton *registerBtn;
 
     void setupUI();
+    bool validateInput(const QString &text);
 };
 
 #endif // LOGINWINDOW_H

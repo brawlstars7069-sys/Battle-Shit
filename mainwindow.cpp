@@ -6,11 +6,11 @@
 #include <cmath>
 #include <QDebug>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backgroundOffset(0)
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), backgroundOffset(0), backgroundOffsetY(0), isUserRegistered(false)
 {
     setObjectName("menuWindow");
 
-    // Включаем отслеживание мыши
     setMouseTracking(true);
     if(centralWidget()) centralWidget()->setMouseTracking(true);
 
@@ -24,13 +24,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backgroundOffset(
 
     setupUI();
     setWindowTitle("Морской Бой - 8-BIT EDITION");
-    resize(600, 500);
+
+    // Инициализация окна регистрации
+    loginWindow = new LoginWindow(nullptr); // nullptr, чтобы окно было независимым
+    connect(loginWindow, &LoginWindow::registrationSuccessful, this, &MainWindow::onRegistrationFinished);
+
+    // ЗАПУСК ВО ВЕСЬ ЭКРАН
+    showFullScreen();
 }
 
-// Сеттер для свойства анимации фона
 void MainWindow::setBackgroundOffset(float offset) {
     backgroundOffset = offset;
-    update(); // Перерисовываем окно при изменении значения
+    update();
+}
+
+void MainWindow::setBackgroundOffsetY(float offset) {
+    backgroundOffsetY = offset;
+    update();
 }
 
 void MainWindow::setupUI()
@@ -39,22 +49,23 @@ void MainWindow::setupUI()
     central->setMouseTracking(true);
     setCentralWidget(central);
 
-    // Важно: мы не устанавливаем Layout на centralWidget,
-    // чтобы свободно двигать дочерние контейнеры.
-
-    // Инициализация контейнеров
     menuContainer = new QWidget(central);
-    menuContainer->setMouseTracking(true); // Включаем трекинг для параллакса
+    menuContainer->setMouseTracking(true);
 
     settingsContainer = new QWidget(central);
-    settingsContainer->setMouseTracking(true); // Включаем трекинг для параллакса
+    settingsContainer->setMouseTracking(true);
+
+    multiplayerContainer = new QWidget(central);
+    multiplayerContainer->setMouseTracking(true);
 
     setupMenuContainer();
     setupSettingsContainer();
+    setupMultiplayerContainer();
 
-    // Позиционирование (будет обновлено в resizeEvent)
+    // Исходные позиции
     menuContainer->move(0, 0);
-    settingsContainer->move(-width(), 0); // Изначально скрыт слева
+    settingsContainer->move(-width(), 0);
+    multiplayerContainer->move(0, height());
 }
 
 void MainWindow::setupMenuContainer() {
@@ -62,7 +73,6 @@ void MainWindow::setupMenuContainer() {
     layout->setSpacing(15);
     layout->setContentsMargins(40, 40, 40, 40);
 
-    // Заголовок
     QLabel *titleLabel = new QLabel("МОРСКОЙ БОЙ", menuContainer);
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet(
@@ -91,17 +101,13 @@ void MainWindow::setupMenuContainer() {
 }
 
 void MainWindow::setupSettingsContainer() {
-    // ИСПРАВЛЕНИЕ: Убрали фон у контейнера настроек, чтобы был виден параллакс
-    // settingsContainer->setStyleSheet("background-color: rgba(248, 240, 227, 200);");
-
     QVBoxLayout *mainLayout = new QVBoxLayout(settingsContainer);
     mainLayout->setContentsMargins(20, 20, 20, 20);
 
-    // Верхняя панель с кнопкой НАЗАД
     QHBoxLayout *topLayout = new QHBoxLayout();
     QPushButton *btnBack = new QPushButton("НАЗАД", settingsContainer);
     btnBack->setFixedSize(100, 40);
-    btnBack->setStyleSheet("background-color: #c0392b; color: white;"); // Красная кнопка
+    btnBack->setStyleSheet("background-color: #c0392b; color: white;");
     connect(btnBack, &QPushButton::clicked, this, &MainWindow::onBackFromSettingsClicked);
 
     QLabel *settingsTitle = new QLabel("НАСТРОЙКИ", settingsContainer);
@@ -112,10 +118,8 @@ void MainWindow::setupSettingsContainer() {
     topLayout->addStretch();
     topLayout->addWidget(settingsTitle);
     topLayout->addStretch();
-    // Пустой виджет для баланса
     QWidget *dummy = new QWidget(); dummy->setFixedSize(100, 40); topLayout->addWidget(dummy);
 
-    // Центральная часть: Аватар
     QVBoxLayout *centerLayout = new QVBoxLayout();
     centerLayout->setAlignment(Qt::AlignCenter);
 
@@ -123,7 +127,6 @@ void MainWindow::setupSettingsContainer() {
     avatarLabel->setStyleSheet("font-weight: bold; font-size: 18px;");
     avatarLabel->setAlignment(Qt::AlignCenter);
 
-    // Превью текущего аватара
     currentAvatarPreview = new QLabel(settingsContainer);
     currentAvatarPreview->setFixedSize(120, 120);
     currentAvatarPreview->setStyleSheet("border: 4px solid #333; background-color: rgba(255,255,255,150);");
@@ -145,17 +148,11 @@ void MainWindow::setupSettingsContainer() {
     mainLayout->addLayout(centerLayout);
     mainLayout->addStretch();
 
-    // --- ОВЕРЛЕЙ ВЫБОРА АВАТАРА ---
-    // Создаем его как ребенка settingsContainer, но НЕ добавляем в layout.
-    // Мы будем управлять его размером вручную в resizeEvent.
     avatarSelectionWidget = new QWidget(settingsContainer);
-    avatarSelectionWidget->setMouseTracking(true); // Включаем трекинг для параллакса внутри оверлея
+    avatarSelectionWidget->setMouseTracking(true);
     avatarSelectionWidget->hide();
-
-    // Применяем фон только к этому оверлею
     avatarSelectionWidget->setStyleSheet("background-color: rgba(248, 240, 227, 230);");
 
-    // Макет внутри оверлея
     QVBoxLayout *overlayLayout = new QVBoxLayout(avatarSelectionWidget);
     overlayLayout->setAlignment(Qt::AlignCenter);
 
@@ -168,7 +165,6 @@ void MainWindow::setupSettingsContainer() {
     QGridLayout *grid = new QGridLayout(gridContainer);
     grid->setSpacing(15);
 
-    // --- ГЕНЕРАЦИЯ ТЕСТОВЫХ АВАТАРОК ---
     QStringList avatars;
     avatars << ":/avatars/CRking.png" << ":/avatars/2.png" << ":/avatars/3.png" << ":/avatars/4.png";
 
@@ -184,7 +180,6 @@ void MainWindow::setupSettingsContainer() {
         if (QFile::exists(path)) {
             pix.load(path);
         } else {
-            // Файла нет, генерируем цвет
             QColor col = QColor::fromHsv((i * 60) % 360, 150, 200);
             pix.fill(col);
             QPainter p(&pix);
@@ -194,14 +189,12 @@ void MainWindow::setupSettingsContainer() {
         QIcon icon(pix);
         btn->setIcon(icon);
         btn->setIconSize(QSize(60, 60));
-
         btn->setProperty("avatarPath", path.isEmpty() ? QString("color:%1").arg(i) : path);
 
         connect(btn, &QPushButton::clicked, this, [=](){
             QString p = btn->property("avatarPath").toString();
             onAvatarSelected(p);
         });
-
         grid->addWidget(btn, 0, i);
     }
 
@@ -219,33 +212,106 @@ void MainWindow::setupSettingsContainer() {
     overlayLayout->addStretch();
 }
 
+void MainWindow::setupMultiplayerContainer() {
+    QVBoxLayout *mainLayout = new QVBoxLayout(multiplayerContainer);
+    mainLayout->setContentsMargins(20, 20, 20, 20);
+    mainLayout->setSpacing(10);
+
+    QHBoxLayout *topLayout = new QHBoxLayout();
+
+    QPushButton *btnBack = new QPushButton("НАЗАД", multiplayerContainer);
+    btnBack->setFixedSize(100, 40);
+    btnBack->setStyleSheet("background-color: #c0392b; color: white;");
+    connect(btnBack, &QPushButton::clicked, this, &MainWindow::onBackFromMultiplayerClicked);
+
+    QLabel *title = new QLabel("СПИСОК СЕРВЕРОВ", multiplayerContainer);
+    title->setStyleSheet("font-size: 24px; font-weight: bold; color: #333;");
+    title->setAlignment(Qt::AlignCenter);
+
+    QWidget *dummy = new QWidget();
+    dummy->setFixedSize(100, 40);
+
+    topLayout->addWidget(btnBack);
+    topLayout->addStretch();
+    topLayout->addWidget(title);
+    topLayout->addStretch();
+    topLayout->addWidget(dummy);
+
+    QHBoxLayout *actionsLayout = new QHBoxLayout();
+    actionsLayout->setSpacing(20);
+
+    QPushButton *btnCreate = new QPushButton("СОЗДАТЬ СЕРВЕР", multiplayerContainer);
+    btnCreate->setStyleSheet("background-color: #27ae60; color: white; min-width: 150px;");
+
+    QPushButton *btnConnect = new QPushButton("ПОДКЛЮЧИТЬСЯ", multiplayerContainer);
+    btnConnect->setStyleSheet("background-color: #2980b9; color: white; min-width: 150px;");
+
+    connect(btnCreate, &QPushButton::clicked, this, &MainWindow::onCreateServerClicked);
+    connect(btnConnect, &QPushButton::clicked, this, &MainWindow::onConnectClicked);
+
+    actionsLayout->addStretch();
+    actionsLayout->addWidget(btnCreate);
+    actionsLayout->addWidget(btnConnect);
+    actionsLayout->addStretch();
+
+    serverListWidget = new QListWidget(multiplayerContainer);
+    serverListWidget->setStyleSheet(
+        "QListWidget { "
+        "   background-color: rgba(255, 255, 255, 180); "
+        "   border: 3px solid #555; "
+        "   font-family: 'Courier New'; "
+        "   font-size: 16px; "
+        "}"
+        "QListWidget::item { padding: 10px; }"
+        "QListWidget::item:selected { background-color: #3498db; color: white; }"
+        );
+
+    serverListWidget->addItem("Server #1 - [Map: Classic] - (1/2)");
+    serverListWidget->addItem("Server #2 - [Map: Foggy] - (0/2)");
+    serverListWidget->addItem("MegaBattle 2025 - (WAITING)");
+
+    mainLayout->addLayout(topLayout);
+    mainLayout->addSpacing(20);
+    mainLayout->addLayout(actionsLayout);
+    mainLayout->addWidget(serverListWidget);
+    mainLayout->addSpacing(10);
+}
+
 void MainWindow::resizeEvent(QResizeEvent *event) {
-    // При изменении размера окна, растягиваем контейнеры
     QSize s = event->size();
 
-    // Обновляем размер оверлея, если он существует
     if (avatarSelectionWidget) {
         avatarSelectionWidget->resize(s);
     }
 
-    // Если меню активно (находится в 0,0)
-    if (menuContainer->pos().x() == 0) {
+    if (menuContainer->pos() == QPoint(0,0)) {
         menuContainer->resize(s);
         settingsContainer->resize(s);
-        settingsContainer->move(-s.width(), 0); // Прячем слева
-        // Сбрасываем оффсет фона если мы в меню
-        if (getBackgroundOffset() != 0) setBackgroundOffset(0);
+        settingsContainer->move(-s.width(), 0);
+        multiplayerContainer->resize(s);
+        multiplayerContainer->move(0, s.height());
+
+        if (backgroundOffset != 0) setBackgroundOffset(0);
+        if (backgroundOffsetY != 0) setBackgroundOffsetY(0);
     }
-    // Если настройки активны (находятся в 0,0)
-    else if (settingsContainer->pos().x() == 0) {
+    else if (settingsContainer->pos() == QPoint(0,0)) {
         settingsContainer->resize(s);
         menuContainer->resize(s);
-        menuContainer->move(s.width(), 0); // Прячем справа
+        menuContainer->move(s.width(), 0);
+        multiplayerContainer->resize(s);
+        multiplayerContainer->move(0, s.height());
     }
-    // Если идет анимация
+    else if (multiplayerContainer->pos() == QPoint(0,0)) {
+        multiplayerContainer->resize(s);
+        menuContainer->resize(s);
+        menuContainer->move(0, -s.height());
+        settingsContainer->resize(s);
+        settingsContainer->move(-s.width(), 0);
+    }
     else {
         menuContainer->resize(s);
         settingsContainer->resize(s);
+        multiplayerContainer->resize(s);
     }
 
     QMainWindow::resizeEvent(event);
@@ -253,7 +319,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 
 void MainWindow::mouseMoveEvent(QMouseEvent *event) {
     mousePos = event->pos();
-    update(); // Перерисовываем фон при движении мыши
+    update();
 }
 
 void MainWindow::paintEvent(QPaintEvent *)
@@ -269,31 +335,29 @@ void MainWindow::paintEvent(QPaintEvent *)
     int shiftX = (mousePos.x() - w/2) * 0.05;
     int shiftY = (mousePos.y() - h/2) * 0.05;
 
-    // Ширина цикла для фона (экран + буфер для плавного появления)
     int cycleWidth = w + 200;
+    int cycleHeight = h + 200;
 
-    auto drawPixelShip = [&](int originalX, int y, int size, QColor color) {
+    auto drawPixelShip = [&](int originalX, int originalY, int size, QColor color) {
         p.setBrush(color);
         p.setPen(Qt::NoPen);
         int s = size;
         int shipShiftX = shiftX * 0.5;
 
-        // --- ЛОГИКА ПРОКРУТКИ КОРАБЛЕЙ ---
-        // Добавляем backgroundOffset к позиции
         int currentX = originalX + (int)backgroundOffset;
-
-        // Зацикливаем координату X
-        // Используем сложный модуль, чтобы корректно обрабатывать отрицательные числа при сдвиге
         int wrappedX = ((currentX % cycleWidth) + cycleWidth) % cycleWidth;
-
-        // Сдвигаем обратно на -100, чтобы компенсировать буфер и позволить выплывать из-за левого края
         wrappedX -= 100;
 
-        int finalX = wrappedX + shipShiftX;
+        int currentY = originalY + (int)backgroundOffsetY;
+        int wrappedY = ((currentY % cycleHeight) + cycleHeight) % cycleHeight;
+        wrappedY -= 100;
 
-        p.drawRect(finalX, y, s*6, s);
-        p.drawRect(finalX + s, y-s, s*4, s);
-        p.drawRect(finalX + s*2, y-s*2, s, s);
+        int finalX = wrappedX + shipShiftX;
+        int finalY = wrappedY;
+
+        p.drawRect(finalX, finalY, s*6, s);
+        p.drawRect(finalX + s, finalY-s, s*4, s);
+        p.drawRect(finalX + s*2, finalY-s*2, s, s);
     };
 
     drawPixelShip(w*0.1, h*0.2, 5, QColor(200, 190, 180));
@@ -303,37 +367,33 @@ void MainWindow::paintEvent(QPaintEvent *)
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(169, 169, 169));
 
-    for (int y = 50; y < h; y += 40) {
-        int rowShift = shiftX * (float(y)/h);
+    for (int y = -100; y < h + 100; y += 40) {
+        int bgShiftY = (int)backgroundOffsetY;
+        int currentY = y + bgShiftY;
+
+        int wrappedY = ((currentY % cycleHeight) + cycleHeight) % cycleHeight;
+        wrappedY -= 100;
+
+        int rowShift = shiftX * (float(wrappedY)/h);
+
         for (int x = -50; x < w + 50; x += 20) {
-
-            // --- ЛОГИКА ПРОКРУТКИ ВОЛН ---
-            int bgShift = (int)backgroundOffset;
-            int finalX = x + rowShift + bgShift;
-
-            // Зацикливаем волны. Используем ширину окна + запас 100
+            int bgShiftX = (int)backgroundOffset;
+            int finalX = x + rowShift + bgShiftX;
             int waveCycle = w + 100;
             finalX = (finalX % waveCycle + waveCycle) % waveCycle;
 
-            // Если ушли слишком далеко вправо из-за модуля, сдвигаем влево для заполнения дыры
             if (finalX > w + 50) finalX -= waveCycle;
-            // Коррекция для начала (чтобы не было пустой полосы слева при старте)
             if (finalX > w) finalX -= waveCycle;
 
-            p.drawRect(finalX, y + shiftY * 0.2, pixelSize, pixelSize);
-            p.drawRect(finalX + pixelSize, y + pixelSize + shiftY * 0.2, pixelSize, pixelSize);
+            p.drawRect(finalX, wrappedY + shiftY * 0.2, pixelSize, pixelSize);
+            p.drawRect(finalX + pixelSize, wrappedY + pixelSize + shiftY * 0.2, pixelSize, pixelSize);
         }
     }
 }
 
-// --- ЛОГИКА АНИМАЦИИ ---
+// --- АНИМАЦИИ ---
 
 void MainWindow::onSettingsClicked() {
-    // Экран (камера) едет влево -> Объекты едут вправо
-    // Меню уезжает вправо (в width)
-    // Настройки выезжают из левой части (из -width в 0)
-
-    // Подготовка позиций перед анимацией
     settingsContainer->move(-width(), 0);
     settingsContainer->show();
 
@@ -349,12 +409,10 @@ void MainWindow::onSettingsClicked() {
     animSettings->setEndValue(QPoint(0, 0));
     animSettings->setEasingCurve(QEasingCurve::InOutQuad);
 
-    // --- АНИМАЦИЯ ФОНА (ВПРАВО) ---
-    // Фон сдвигается на ширину экрана вправо, создавая эффект уплывания
     animBackground = new QPropertyAnimation(this, "backgroundOffset", this);
     animBackground->setDuration(500);
-    animBackground->setStartValue(backgroundOffset); // Обычно 0
-    animBackground->setEndValue((float)width());     // Сдвигаем на ширину экрана
+    animBackground->setStartValue(backgroundOffset);
+    animBackground->setEndValue((float)width());
     animBackground->setEasingCurve(QEasingCurve::InOutQuad);
 
     animMenu->start(QAbstractAnimation::DeleteWhenStopped);
@@ -363,11 +421,6 @@ void MainWindow::onSettingsClicked() {
 }
 
 void MainWindow::onBackFromSettingsClicked() {
-    // Возврат:
-    // Настройки уезжают обратно влево (-width)
-    // Меню возвращается из правой части (из width в 0)
-
-    // Если оверлей открыт, скрываем его
     if (avatarSelectionWidget->isVisible()) avatarSelectionWidget->hide();
 
     animMenu = new QPropertyAnimation(menuContainer, "pos", this);
@@ -382,12 +435,10 @@ void MainWindow::onBackFromSettingsClicked() {
     animSettings->setEndValue(QPoint(-width(), 0));
     animSettings->setEasingCurve(QEasingCurve::InOutQuad);
 
-    // --- АНИМАЦИЯ ФОНА (ОБРАТНО ВЛЕВО) ---
-    // Возвращаем фон в исходное положение
     animBackground = new QPropertyAnimation(this, "backgroundOffset", this);
     animBackground->setDuration(500);
-    animBackground->setStartValue(backgroundOffset); // Текущее (width)
-    animBackground->setEndValue(0.0f);               // Обратно в 0
+    animBackground->setStartValue(backgroundOffset);
+    animBackground->setEndValue(0.0f);
     animBackground->setEasingCurve(QEasingCurve::InOutQuad);
 
     animMenu->start(QAbstractAnimation::DeleteWhenStopped);
@@ -395,45 +446,119 @@ void MainWindow::onBackFromSettingsClicked() {
     animBackground->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
+// --- МУЛЬТИПЛЕЕР И ВХОД ---
+
+void MainWindow::onMultiplayerClicked() {
+    // ПРОВЕРКА РЕГИСТРАЦИИ
+    if (!isUserRegistered) {
+        // Если не вошел - показываем окно входа и прерываем анимацию
+        loginWindow->show();
+        // Можно сделать модальным, чтобы пользователь не мог кликать в главное меню
+        loginWindow->raise();
+        loginWindow->activateWindow();
+        return;
+    }
+
+    startMultiplayerAnimation();
+}
+
+void MainWindow::startMultiplayerAnimation() {
+    multiplayerContainer->move(0, height());
+    multiplayerContainer->show();
+
+    animMenu = new QPropertyAnimation(menuContainer, "pos", this);
+    animMenu->setDuration(500);
+    animMenu->setStartValue(QPoint(0, 0));
+    animMenu->setEndValue(QPoint(0, -height()));
+    animMenu->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animMultiplayer = new QPropertyAnimation(multiplayerContainer, "pos", this);
+    animMultiplayer->setDuration(500);
+    animMultiplayer->setStartValue(QPoint(0, height()));
+    animMultiplayer->setEndValue(QPoint(0, 0));
+    animMultiplayer->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animBackgroundY = new QPropertyAnimation(this, "backgroundOffsetY", this);
+    animBackgroundY->setDuration(500);
+    animBackgroundY->setStartValue(backgroundOffsetY);
+    animBackgroundY->setEndValue((float)-height());
+    animBackgroundY->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animMenu->start(QAbstractAnimation::DeleteWhenStopped);
+    animMultiplayer->start(QAbstractAnimation::DeleteWhenStopped);
+    animBackgroundY->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::onRegistrationFinished() {
+    // Вызывается сигналом из LoginWindow при успешном входе
+    isUserRegistered = true;
+    startMultiplayerAnimation();
+}
+
+void MainWindow::onBackFromMultiplayerClicked() {
+    animMenu = new QPropertyAnimation(menuContainer, "pos", this);
+    animMenu->setDuration(500);
+    animMenu->setStartValue(QPoint(0, -height()));
+    animMenu->setEndValue(QPoint(0, 0));
+    animMenu->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animMultiplayer = new QPropertyAnimation(multiplayerContainer, "pos", this);
+    animMultiplayer->setDuration(500);
+    animMultiplayer->setStartValue(QPoint(0, 0));
+    animMultiplayer->setEndValue(QPoint(0, height()));
+    animMultiplayer->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animBackgroundY = new QPropertyAnimation(this, "backgroundOffsetY", this);
+    animBackgroundY->setDuration(500);
+    animBackgroundY->setStartValue(backgroundOffsetY);
+    animBackgroundY->setEndValue(0.0f);
+    animBackgroundY->setEasingCurve(QEasingCurve::InOutQuad);
+
+    animMenu->start(QAbstractAnimation::DeleteWhenStopped);
+    animMultiplayer->start(QAbstractAnimation::DeleteWhenStopped);
+    animBackgroundY->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::onCreateServerClicked() {
+    QMessageBox::information(this, "Сервер", "Создание сервера пока недоступно.");
+}
+
+void MainWindow::onConnectClicked() {
+    if (serverListWidget->currentItem()) {
+        QString serverName = serverListWidget->currentItem()->text();
+        QMessageBox::information(this, "Подключение", "Попытка подключения к: " + serverName);
+    } else {
+        QMessageBox::warning(this, "Ошибка", "Выберите сервер из списка!");
+    }
+}
+
 void MainWindow::onChangeAvatarClicked() {
-    // Показываем/скрываем панель выбора
     if (avatarSelectionWidget->isVisible()) {
         avatarSelectionWidget->hide();
     } else {
         avatarSelectionWidget->show();
-        avatarSelectionWidget->raise(); // Поднимаем наверх
+        avatarSelectionWidget->raise();
     }
 }
 
 void MainWindow::onAvatarSelected(const QString &path) {
     selectedAvatarPath = path;
-
-    // Обновляем превью
     if (path.startsWith("color:")) {
-        // Это наша заглушка
         int idx = path.split(":")[1].toInt();
         QPixmap pix(100, 100);
         pix.fill(QColor::fromHsv((idx * 60) % 360, 150, 200));
         currentAvatarPreview->setPixmap(pix);
     } else {
-        // Реальный файл
         QPixmap pix(path);
         if (!pix.isNull()) {
             currentAvatarPreview->setPixmap(pix.scaled(110, 110, Qt::KeepAspectRatio, Qt::SmoothTransformation));
         }
     }
-
-    // Скрываем выбор
     avatarSelectionWidget->hide();
 }
 
 void MainWindow::onSinglePlayerClicked()
 {
-    // Передаем выбранный аватар в игру
-    // Если это "цветная заглушка", GameWindow попробует загрузить это как путь и не найдет файл,
-    // поэтому покажет стандартного человечка.
-    // Чтобы работало с заглушкой, нужно допиливать GameWindow, но для файлов ресурсов всё ок.
-
     GameWindow *game = new GameWindow(selectedAvatarPath);
     this->hide();
     connect(game, &GameWindow::backToMenu, this, [=]() {
@@ -443,5 +568,4 @@ void MainWindow::onSinglePlayerClicked()
     game->show();
 }
 
-void MainWindow::onMultiplayerClicked() { QMessageBox::information(this, "Инфо", "Скоро..."); }
 void MainWindow::onExitClicked() { QApplication::quit(); }
