@@ -12,5 +12,6 @@ namespace GameServer
         List<Player> GetConnectedPlayers();
         bool IsPlayerConnected(string playerId);
         int GetPlayerCount();
+        bool UpdatePlayerName(string playerId, string newName);
     }
 }

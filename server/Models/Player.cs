@@ -5,7 +5,7 @@ namespace GameServer
 {
     public class Player
     {
-        public string Id { get; private set; }
+        public string Id { get; set; }
         public string Name { get; set; }
         public TcpClient Client { get; set; }
         public DateTime ConnectedAt { get; private set; }

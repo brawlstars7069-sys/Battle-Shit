@@ -52,22 +52,21 @@ namespace GameServer
             Console.WriteLine();
         }
 
-        //создаем все необходимые сервисы (пока заглушки)
         static void InitializeServices()
         {
             Console.WriteLine("Инициализация сервисов...");
 
-            //В следующих коммитах будут полноценные классы
 
-            playerService = new PlayerServiceStub();
-            gameService = new GameServiceStub();
-            networkService = new NetworkServiceStub();
-            messageHandler = new MessageHandlerStub();
+            playerService = new PlayerService();
+            gameService = new GameService();
+            networkService = new NetworkService(playerService);
+            messageHandler = new MessageHandler(playerService, gameService, networkService);
 
             Console.WriteLine("NetworkService инициализирован");
             Console.WriteLine("GameService инициализирован");
             Console.WriteLine("PlayerService инициализирован");
-            Console.WriteLine("Сервисы инициализированы (заглушка)");
+            Console.WriteLine("MessageHandler инициализирован");
+            Console.WriteLine("Сервисы инициализированы!");
             Console.WriteLine();
         }
 
@@ -156,130 +155,6 @@ namespace GameServer
                 //Закрываем соединение
                 client.Close();
                 Console.WriteLine($"Соединение закрыто");
-            }
-        }
-
-        //Временные заглушки классов
-
-        class PlayerServiceStub : IPlayerService
-        {
-            public Player AddPlayer(TcpClient client)
-            {
-                Console.WriteLine("PlayerServiceStub: Добавлен новый игрок (заглушка)");
-                return new Player { Client = client };
-            }
-
-            public bool RemovePlayer(string playerId)
-            {
-                Console.WriteLine($"PlayerServiceStub: Удален игрок {playerId} (заглушка)");
-                return true;
-            }
-
-            public Player GetPlayer(string playerId)
-            {
-                Console.WriteLine($"PlayerServiceStub: Получен игрок {playerId} (заглушка)");
-                return new Player { Id = playerId };
-            }
-
-            public List<Player> GetConnectedPlayers()
-            {
-                Console.WriteLine("PlayerServiceStub: Получен список игроков (заглушка)");
-                return new List<Player>();
-            }
-
-            public bool IsPlayerConnected(string playerId)
-            {
-                Console.WriteLine($"PlayerServiceStub: Проверка подключения {playerId} (заглушка)");
-                return true;
-            }
-
-            public int GetPlayerCount()
-            {
-                Console.WriteLine("PlayerServiceStub: Получено количество игроков (заглушка)");
-                return 0;
-            }
-        }
-
-        class GameServiceStub : IGameService
-        {
-            public GameRoom CreateGame(string playerId, string gameName)
-            {
-                Console.WriteLine($"GameServiceStub: Создана игра '{gameName}' (заглушка)");
-                return new GameRoom { Name = gameName, Player1Id = playerId };
-            }
-
-            public bool JoinGame(string playerId, string gameId)
-            {
-                Console.WriteLine($"GameServiceStub: Игрок {playerId} присоединился к игре {gameId} (заглушка)");
-                return true;
-            }
-
-            public List<GameRoom> GetAvailableGames()
-            {
-                Console.WriteLine("GameServiceStub: Получен список игр (заглушка)");
-                return new List<GameRoom>();
-            }
-
-            public GameRoom GetGame(string gameId)
-            {
-                Console.WriteLine($"GameServiceStub: Получена игра {gameId} (заглушка)");
-                return new GameRoom { Id = gameId };
-            }
-
-            public bool RemoveGame(string gameId)
-            {
-                Console.WriteLine($"GameServiceStub: Удалена игра {gameId} (заглушка)");
-                return true;
-            }
-
-            public bool IsPlayerInGame(string playerId)
-            {
-                Console.WriteLine($"GameServiceStub: Проверка игрока в игре {playerId} (заглушка)");
-                return false;
-            }
-
-            public GameRoom GetGameByPlayer(string playerId)
-            {
-                Console.WriteLine($"GameServiceStub: Получена игра игрока {playerId} (заглушка)");
-                return null;
-            }
-        }
-
-        class NetworkServiceStub : INetworkService
-        {
-            public Task SendToClient(string playerId, string message)
-            {
-                Console.WriteLine($"NetworkServiceStub: Отправлено игроку {playerId}: {message}");
-                return Task.CompletedTask;
-            }
-
-            public Task Broadcast(string message, params string[] excludePlayerIds)
-            {
-                Console.WriteLine($"NetworkServiceStub: Рассылка всем: {message}");
-                return Task.CompletedTask;
-            }
-
-            public Task SendJson(string playerId, object data)
-            {
-                string json = JsonSerializer.Serialize(data);
-                Console.WriteLine($"NetworkServiceStub: Отправлен JSON игроку {playerId}: {json}");
-                return Task.CompletedTask;
-            }
-
-            public Task SendJsonToPlayers(List<string> playerIds, object data)
-            {
-                string json = JsonSerializer.Serialize(data);
-                Console.WriteLine($"NetworkServiceStub: Отправлен JSON игрокам: {json}");
-                return Task.CompletedTask;
-            }
-        }
-
-        class MessageHandlerStub : IMessageHandler
-        {
-            public Task HandleMessage(string playerId, string json)
-            {
-                Console.WriteLine($"MessageHandlerStub: Обработка сообщения от {playerId}: {json}");
-                return Task.CompletedTask;
             }
         }
     }
