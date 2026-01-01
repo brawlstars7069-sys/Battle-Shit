@@ -7,4 +7,95 @@
 /.vs/Battle-Shit/CopilotIndices/17.14.1231.31060
 /.vs
 /server/obj
-/server/bin/Debug/net8.0
+## .NET ##
+*.swp
+*.[oa]
+*.so
+*.a
+*.la
+*.lo
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+*.lib
+*.ncb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.pdb
+*.idb
+*.ilk
+*.log
+*.msi
+*.msm
+*.msp
+*.sdf
+*.opensdf
+*.cachefile
+*.db
+*.db-shm
+*.db-wal
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+.vscode/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+**/Properties/launchSettings.json
+
+# NuGet
+packages/
+*.nupkg
+.nuget/
+nuget.exe
+NuGet.Config
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+*.swp
+*.*~
+project.lock.json
+*.pidb
+*.svn
+
+# Qt (твой клиент)
+*.autosave
+*.pro.user
+*.pro.user.*
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qm
+Makefile*
+*.o
+*.moc
