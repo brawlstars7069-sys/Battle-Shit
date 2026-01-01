@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace GameServer
 {
-    //сервис для работы с игровыми сервисами
+    //сервис для работы с игровыми сессиями
     public class GameService : IGameService
     {
         private readonly Dictionary<string, GameRoom> _gameRooms = new Dictionary<string, GameRoom>();

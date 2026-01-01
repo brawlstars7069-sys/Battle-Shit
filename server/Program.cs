@@ -64,6 +64,7 @@ namespace GameServer
             networkService = new NetworkServiceStub();
             messageHandler = new MessageHandlerStub();
 
+            Console.WriteLine("NetworkService инициализирован");
             Console.WriteLine("GameService инициализирован");
             Console.WriteLine("PlayerService инициализирован");
             Console.WriteLine("Сервисы инициализированы (заглушка)");
