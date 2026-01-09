@@ -1,4 +1,4 @@
-#include "RPSWidget.h"
+#include "rpswidget.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPainter>
@@ -6,14 +6,13 @@
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 
-// --- RPSItem (Элемент выбора) ---
+// --- RPSItem ---
 
 RPSItem::RPSItem(RPSType type, QWidget *parent)
     : QWidget(parent), type(type), isHovered(false), isDisabled(false)
 {
     setFixedSize(100, 100);
     setCursor(Qt::PointingHandCursor);
-
     shakeTimer = new QTimer(this);
     shakeTimer->setInterval(30);
     connect(shakeTimer, &QTimer::timeout, this, &RPSItem::updateShake);
@@ -47,7 +46,6 @@ void RPSItem::mousePressEvent(QMouseEvent *event) {
 }
 
 void RPSItem::updateShake() {
-    // Генерируем случайное смещение от -2 до 2 пикселей
     int dx = QRandomGenerator::global()->bounded(5) - 2;
     int dy = QRandomGenerator::global()->bounded(5) - 2;
     shakeOffset = QPoint(dx, dy);
@@ -57,21 +55,16 @@ void RPSItem::updateShake() {
 void RPSItem::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
-
-    // Смещаем painter для эффекта тряски
     p.translate(shakeOffset);
-
     int w = width();
     int h = height();
 
-    // Фон кнопки
     if (isHovered && !isDisabled) {
         p.setBrush(QColor(255, 255, 255, 50));
         p.setPen(QPen(Qt::white, 2, Qt::DashLine));
         p.drawRect(2, 2, w-4, h-4);
     }
 
-    // Отрисовка иконок в стиле 8-бит
     if (type == RPSType::Rock) drawRock(p, w, h);
     else if (type == RPSType::Paper) drawPaper(p, w, h);
     else if (type == RPSType::Scissors) drawScissors(p, w, h);
@@ -80,25 +73,19 @@ void RPSItem::paintEvent(QPaintEvent *) {
 void RPSItem::drawRock(QPainter &p, int w, int h) {
     p.setPen(QPen(Qt::black, 2));
     p.setBrush(QColor(120, 120, 120));
-    // Простой "камень"
     QPolygon poly;
     poly << QPoint(w*0.3, h*0.2) << QPoint(w*0.7, h*0.2)
          << QPoint(w*0.9, h*0.5) << QPoint(w*0.8, h*0.8)
          << QPoint(w*0.2, h*0.8) << QPoint(w*0.1, h*0.5);
     p.drawPolygon(poly);
-
-    // Блики/тени для объема
     p.setBrush(QColor(150, 150, 150));
     p.drawRect(w*0.3, h*0.3, w*0.2, h*0.2);
 }
 
 void RPSItem::drawPaper(QPainter &p, int w, int h) {
     p.setPen(QPen(Qt::black, 2));
-    p.setBrush(QColor(240, 240, 220)); // Бумага
-
+    p.setBrush(QColor(240, 240, 220));
     p.drawRect(w*0.25, h*0.2, w*0.5, h*0.6);
-
-    // Линии текста
     p.setPen(QColor(100, 100, 100));
     for(int i=0; i<3; i++) {
         p.drawLine(w*0.35, h*0.35 + i*15, w*0.65, h*0.35 + i*15);
@@ -107,23 +94,16 @@ void RPSItem::drawPaper(QPainter &p, int w, int h) {
 
 void RPSItem::drawScissors(QPainter &p, int w, int h) {
     p.setPen(QPen(Qt::black, 2));
-    p.setBrush(QColor(180, 50, 50)); // Красные ручки
-
-    // Ручки
+    p.setBrush(QColor(180, 50, 50));
     p.drawEllipse(QPoint(w*0.3, h*0.75), 10, 10);
     p.drawEllipse(QPoint(w*0.7, h*0.75), 10, 10);
-
-    // Лезвия
     p.setBrush(QColor(200, 200, 200));
     QPolygon blade1;
     blade1 << QPoint(w*0.3, h*0.75) << QPoint(w*0.7, h*0.2) << QPoint(w*0.75, h*0.25) << QPoint(w*0.35, h*0.8);
     p.drawPolygon(blade1);
-
     QPolygon blade2;
     blade2 << QPoint(w*0.7, h*0.75) << QPoint(w*0.3, h*0.2) << QPoint(w*0.25, h*0.25) << QPoint(w*0.65, h*0.8);
     p.drawPolygon(blade2);
-
-    // Винтик
     p.setBrush(Qt::black);
     p.drawEllipse(QPoint(w*0.5, h*0.5), 3, 3);
 }
@@ -131,17 +111,15 @@ void RPSItem::drawScissors(QPainter &p, int w, int h) {
 // --- RPSWidget (Окно) ---
 
 RPSWidget::RPSWidget(QWidget *parent)
-    : QWidget(parent), botChoice(RPSType::None), showResult(false)
+    : QWidget(parent), isMultiplayerMode(false)
 {
-    // Важно: наложение должно быть поверх всего, но внутри родителя
     if (parent) resize(parent->size());
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setAlignment(Qt::AlignCenter);
     mainLayout->setSpacing(30);
 
-    // Заголовок
-    statusLabel = new QLabel("КТО ХОДИТ ПЕРВЫМ?\nВЫБЕРИТЕ ОРУЖИЕ!", this);
+    statusLabel = new QLabel("ВЫБЕРИТЕ ОРУЖИЕ!", this);
     statusLabel->setAlignment(Qt::AlignCenter);
     statusLabel->setStyleSheet(
         "font-size: 24px; font-weight: bold; color: white; "
@@ -149,7 +127,6 @@ RPSWidget::RPSWidget(QWidget *parent)
         "font-family: 'Courier New';"
         );
 
-    // Контейнер для кнопок
     QWidget *itemsContainer = new QWidget(this);
     itemsContainer->setStyleSheet("background: transparent;");
     QHBoxLayout *itemsLayout = new QHBoxLayout(itemsContainer);
@@ -167,7 +144,6 @@ RPSWidget::RPSWidget(QWidget *parent)
     itemsLayout->addWidget(itemPaper);
     itemsLayout->addWidget(itemScissors);
 
-    // Лейбл для показа выбора бота (пока скрыт)
     vsLabel = new QLabel("", this);
     vsLabel->setAlignment(Qt::AlignCenter);
     vsLabel->setStyleSheet("font-size: 40px; color: yellow; font-weight: bold; font-family: 'Courier New';");
@@ -181,9 +157,12 @@ RPSWidget::RPSWidget(QWidget *parent)
     mainLayout->addStretch(1);
 }
 
+void RPSWidget::setMultiplayerMode(bool active) {
+    isMultiplayerMode = active;
+}
+
 void RPSWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
-    // Затемнение экрана
     p.fillRect(rect(), QColor(0, 0, 0, 180));
 }
 
@@ -197,38 +176,55 @@ void RPSWidget::onItemClicked(RPSType playerChoice) {
     itemPaper->setDisabledState(true);
     itemScissors->setDisabledState(true);
 
-    processRound(playerChoice);
+    if (isMultiplayerMode) {
+        statusLabel->setText("ОЖИДАНИЕ ПРОТИВНИКА...");
+        statusLabel->setStyleSheet("color: #3498db; font-size: 24px; background-color: rgba(0,0,0,150); padding: 10px; font-family: 'Courier New'; font-weight: bold;");
+        emit choiceMade(playerChoice);
+    } else {
+        processBotRound(playerChoice);
+    }
 }
 
-void RPSWidget::processRound(RPSType playerChoice) {
-    // Выбор бота
+// Для одиночной игры
+void RPSWidget::processBotRound(RPSType playerChoice) {
     int rnd = QRandomGenerator::global()->bounded(3);
     RPSType bot = static_cast<RPSType>(rnd);
 
-    QString botStr;
-    if (bot == RPSType::Rock) botStr = "БОТ: КАМЕНЬ";
-    else if (bot == RPSType::Paper) botStr = "БОТ: БУМАГА";
-    else botStr = "БОТ: НОЖНИЦЫ";
+    // В одиночном режиме мы сразу показываем результат
+    // Эмулируем resolveRound
+    resolveRound(playerChoice, bot);
+}
 
-    vsLabel->setText(botStr);
+// Универсальный метод
+void RPSWidget::resolveRound(RPSType myChoice, RPSType oppChoice) {
+    QString oppStr;
+    if (isMultiplayerMode) oppStr = "ВРАГ: ";
+    else oppStr = "БОТ: ";
+
+    if (oppChoice == RPSType::Rock) oppStr += "КАМЕНЬ";
+    else if (oppChoice == RPSType::Paper) oppStr += "БУМАГА";
+    else oppStr += "НОЖНИЦЫ";
+
+    vsLabel->setText(oppStr);
     vsLabel->show();
 
-    // Определение победителя
-    // 0=Draw, 1=Player Win, -1=Bot Win
-    int result = 0;
-
-    if (playerChoice == bot) {
+    int result = 0; // 0=Draw
+    if (myChoice == oppChoice) {
         result = 0;
     } else if (
-        (playerChoice == RPSType::Rock && bot == RPSType::Scissors) ||
-        (playerChoice == RPSType::Scissors && bot == RPSType::Paper) ||
-        (playerChoice == RPSType::Paper && bot == RPSType::Rock)
+        (myChoice == RPSType::Rock && oppChoice == RPSType::Scissors) ||
+        (myChoice == RPSType::Scissors && oppChoice == RPSType::Paper) ||
+        (myChoice == RPSType::Paper && oppChoice == RPSType::Rock)
         ) {
         result = 1;
     } else {
         result = -1;
     }
 
+    showOutcome(result);
+}
+
+void RPSWidget::showOutcome(int result) {
     if (result == 0) {
         statusLabel->setText("НИЧЬЯ!\nЕЩЕ РАЗ...");
         statusLabel->setStyleSheet("color: #f1c40f; font-size: 24px; background-color: rgba(0,0,0,150); padding: 10px; font-family: 'Courier New'; font-weight: bold;");
@@ -239,11 +235,12 @@ void RPSWidget::processRound(RPSType playerChoice) {
             statusLabel->setText("ВЫ ПОБЕДИЛИ!\nВЫ ХОДИТЕ ПЕРВЫМ!");
             statusLabel->setStyleSheet("color: #2ecc71; font-size: 24px; background-color: rgba(0,0,0,150); padding: 10px; font-family: 'Courier New'; font-weight: bold;");
         } else {
-            statusLabel->setText("БОТ ПОБЕДИЛ!\nОН ХОДИТ ПЕРВЫМ.");
+            if (isMultiplayerMode) statusLabel->setText("ВРАГ ПОБЕДИЛ!\nОН ХОДИТ ПЕРВЫМ.");
+            else statusLabel->setText("БОТ ПОБЕДИЛ!\nОН ХОДИТ ПЕРВЫМ.");
+
             statusLabel->setStyleSheet("color: #e74c3c; font-size: 24px; background-color: rgba(0,0,0,150); padding: 10px; font-family: 'Courier New'; font-weight: bold;");
         }
 
-        // Задержка перед началом игры
         QTimer::singleShot(2000, [this, playerWon](){
             emit gameFinished(playerWon);
             this->hide();

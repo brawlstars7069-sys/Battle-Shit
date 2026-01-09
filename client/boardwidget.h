@@ -44,27 +44,29 @@ public:
     void setActive(bool active) { isActive = active; update(); }
     void setEnemy(bool enemy) { isEnemyBoard = enemy; }
 
-    // --- НОВЫЕ МЕТОДЫ ДЛЯ СПОСОБНОСТЕЙ ---
-    void setFog(bool active);       // Вкл/выкл туман
-    void setHighlight(QPoint pos);  // Установить метку радара (-1,-1 для сброса)
-    // ------------------------------------
+    // --- НОВЫЕ МЕТОДЫ ДЛЯ МУЛЬТИПЛЕЕРА ---
+    // Позволяет принудительно установить статус клетки (ответ от сервера)
+    void setCellState(int x, int y, CellState state);
 
+    // Получить состояние клетки (нужно для радара и проверок)
+    CellState getCellState(int x, int y) { return grid[x][y]; }
+
+    // Методы способностей
+    void setFog(bool active);
+    void setHighlight(QPoint pos);
+
+    // Основная логика
     bool placeShip(Ship* ship, int x, int y, Orientation orient);
     bool autoPlaceShips();
     void clearBoard();
 
-    // Методы анимации и логики
     void animateShot(int x, int y);
-    int receiveShot(int x, int y);
+    int receiveShot(int x, int y); // Локальный расчет (когда стреляют в нас)
 
     bool canShootAt(int x, int y);
-
     bool isAllDestroyed();
     QPoint getGridCoord(QPoint pos);
     bool hasShipAt(int x, int y);
-
-    // Получить состояние клетки (нужно для радара)
-    CellState getCellState(int x, int y) { return grid[x][y]; }
 
 signals:
     void cellClicked(int x, int y);
@@ -89,7 +91,6 @@ private:
     CellState grid[10][10];
     QVector<Ship*> myShips;
 
-    // Новые поля
     bool isFoggy = false;
     QPoint highlightPos = QPoint(-1, -1);
 

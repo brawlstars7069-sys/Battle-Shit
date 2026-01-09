@@ -29,7 +29,15 @@ void BoardWidget::clearBoard() {
     update();
 }
 
-// --- НОВЫЕ МЕТОДЫ ---
+// --- ВАЖНЫЙ МЕТОД ДЛЯ МУЛЬТИПЛЕЕРА ---
+void BoardWidget::setCellState(int x, int y, CellState state) {
+    if (x >= 0 && x < 10 && y >= 0 && y < 10) {
+        grid[x][y] = state;
+        update();
+    }
+}
+// -------------------------------------
+
 void BoardWidget::setFog(bool active) {
     isFoggy = active;
     update();
@@ -39,7 +47,6 @@ void BoardWidget::setHighlight(QPoint pos) {
     highlightPos = pos;
     update();
 }
-// --------------------
 
 QPoint BoardWidget::getGridCoord(QPoint pos) {
     int w = width();
@@ -119,136 +126,64 @@ Ship* BoardWidget::getShipAt(int x, int y) {
     return nullptr;
 }
 
-// --- ОБНОВЛЕННАЯ ОТРИСОВКА КОРАБЛЯ В ПИКСЕЛЬНОМ СТИЛЕ ---
 void BoardWidget::drawShipShape(QPainter &p, int size, Orientation orient, QRect rect, bool isEnemy, bool isDestroyed)
 {
     p.save();
-
-    // 1. Поворот координатной системы, если корабль вертикальный
     if (orient == Orientation::Vertical) {
-        p.translate(rect.center());
-        p.rotate(90);
-        p.translate(-rect.center());
-        // Меняем ширину и высоту местами для логики отрисовки
-        int cx = rect.center().x();
-        int cy = rect.center().y();
-        int w = rect.height();
-        int h = rect.width();
+        p.translate(rect.center()); p.rotate(90); p.translate(-rect.center());
+        int cx = rect.center().x(); int cy = rect.center().y();
+        int w = rect.height(); int h = rect.width();
         rect = QRect(cx - w/2, cy - h/2, w, h);
     }
 
-    int x = rect.x();
-    int y = rect.y();
-    int w = rect.width();
-    int h = rect.height();
+    int x = rect.x(); int y = rect.y(); int w = rect.width(); int h = rect.height();
+    int u = h / 8; if (u < 1) u = 1;
 
-    // Размер "пикселя"
-    int u = h / 8;
-    if (u < 1) u = 1;
-
-    // Палитра
     QColor cOutline = Qt::black;
-    QColor cMain    = isEnemy ? QColor(80, 80, 80)    : QColor(200, 200, 200); // Корпус
-    QColor cShadow  = isEnemy ? QColor(50, 50, 50)    : QColor(140, 140, 140); // Тень
-    QColor cDeck    = isEnemy ? QColor(100, 100, 100) : QColor(230, 230, 230); // Палуба
-    QColor cAccent  = isEnemy ? QColor(200, 60, 60)   : QColor(60, 150, 220);  // Акценты
+    QColor cMain    = isEnemy ? QColor(80, 80, 80)    : QColor(200, 200, 200);
+    QColor cShadow  = isEnemy ? QColor(50, 50, 50)    : QColor(140, 140, 140);
+    QColor cDeck    = isEnemy ? QColor(100, 100, 100) : QColor(230, 230, 230);
+    QColor cAccent  = isEnemy ? QColor(200, 60, 60)   : QColor(60, 150, 220);
 
     if (isDestroyed) {
-        cMain   = QColor(60, 50, 50);
-        cShadow = QColor(30, 20, 20);
-        cDeck   = QColor(80, 60, 60);
-        cAccent = QColor(40, 40, 40);
+        cMain   = QColor(60, 50, 50); cShadow = QColor(30, 20, 20);
+        cDeck   = QColor(80, 60, 60); cAccent = QColor(40, 40, 40);
     }
 
     p.setPen(Qt::NoPen);
+    int bodyTop = y + u; int bodyH = 6 * u;
+    int sternX = x + u; int noseStart = x + w - 3*u;
 
-    // --- ГЕОМЕТРИЯ ---
-    // Делаем корабль тоньше клетки (отступы сверху и снизу по 1u)
-    // Высота тела корабля = 6u (из 8u высоты клетки)
-    int bodyTop = y + u;
-    int bodyH = 6 * u;
-
-    // Координаты по горизонтали
-    // Корма начинается с отступом u
-    int sternX = x + u;
-    // Нос заканчивается с отступом u, но сам конус занимает место
-    int noseStart = x + w - 3*u;
-
-    // --- 1. КОНТУР (Outline) ---
     p.setBrush(cOutline);
-
-    // Корма (Квадратная, массивная)
     p.drawRect(sternX, bodyTop, u, bodyH);
-
-    // Основное тело
     p.drawRect(sternX + u, bodyTop, (noseStart - sternX - u), bodyH);
-
-    // Нос (Ступенчатое сужение)
-    // Ступень 1
     p.drawRect(noseStart, bodyTop + u, u, bodyH - 2*u);
-    // Ступень 2 (Острие)
     p.drawRect(noseStart + u, bodyTop + 2*u, u, bodyH - 4*u);
 
-    // --- 2. ЗАЛИВКА (Inner) ---
     p.setBrush(cMain);
-
-    // Внутренняя часть меньше контура на 1 пиксель (u) с каждой стороны,
-    // но для пиксель-арта лучше рисовать поверх блоками
-
-    // Корма + Тело (без верхней и нижней грани контура)
     p.drawRect(sternX + u, bodyTop + u, (noseStart - sternX - u), bodyH - 2*u);
-
-    // Внутренняя часть носа
     p.drawRect(noseStart, bodyTop + 2*u, u, bodyH - 4*u);
 
-    // --- 3. ОБЪЕМ (Тень и Свет) ---
-
-    // Тень (Нижняя полоса внутри корпуса)
     p.setBrush(cShadow);
     p.drawRect(sternX + u, bodyTop + bodyH - 2*u, (noseStart - sternX), u);
 
-    // Свет/Палуба (Верхняя полоса внутри корпуса)
     p.setBrush(cDeck);
     p.drawRect(sternX + u, bodyTop + u, (noseStart - sternX - u), u);
 
-    // --- 4. ДЕТАЛИЗАЦИЯ ---
+    int cx = x + w / 2; int cy = y + h / 2;
+    int bridgeX = sternX + 2*u; if (size == 1) bridgeX = cx - u;
 
-    int cx = x + w / 2;
-    int cy = y + h / 2;
+    p.setBrush(cShadow); p.drawRect(bridgeX, cy - u, 3*u, 2*u);
+    p.setBrush(cDeck); p.drawRect(bridgeX + u, cy - u, u, u);
 
-    // Капитанский мостик (Надстройка)
-    // Рисуем немного смещенным назад, чтобы подчеркнуть движение вперед
-    int bridgeX = sternX + 2*u;
-    if (size == 1) bridgeX = cx - u; // Для однопалубного по центру
-
-    // Основание мостика
-    p.setBrush(cShadow);
-    p.drawRect(bridgeX, cy - u, 3*u, 2*u);
-    // Верх мостика
-    p.setBrush(cDeck);
-    p.drawRect(bridgeX + u, cy - u, u, u);
-
-    // Орудийные башни (Акценты)
     p.setBrush(cAccent);
+    if (size >= 2) p.drawRect(noseStart - 2*u, cy - u, 2*u, 2*u);
+    if (size >= 3) p.drawRect(sternX + u, cy - u, 2*u, 2*u);
 
-    if (size >= 2) {
-        // Передняя башня (ближе к носу)
-        p.drawRect(noseStart - 2*u, cy - u, 2*u, 2*u);
-    }
-    if (size >= 3) {
-        // Задняя башня (на корме)
-        p.drawRect(sternX + u, cy - u, 2*u, 2*u);
-    }
-
-    // Иллюминаторы/Двигатели на корме
-    p.setBrush(Qt::black);
-    // Выхлоп на корме
-    p.drawRect(sternX - u/2, cy - u/2, u, u);
-
+    p.setBrush(Qt::black); p.drawRect(sternX - u/2, cy - u/2, u, u);
     p.restore();
 }
 
-// --- АНИМАЦИЯ ---
 bool BoardWidget::hasShipAt(int x, int y) { return getShipAt(x, y) != nullptr; }
 
 bool BoardWidget::canShootAt(int x, int y) {
@@ -273,7 +208,15 @@ void BoardWidget::animateShot(int x, int y) {
     currentAnim.currentPos = QPointF(startX, startY);
     currentAnim.speedY = 15.0;
     currentAnim.frame = 0;
-    currentAnim.isHit = hasShipAt(x, y);
+
+    // В мультиплеере мы не знаем, попали или нет, пока не получим ответ.
+    // Пока считаем false, реальный эффект (взрыв) будет по приходу пакета fire_result
+    // Или, если это локальный бот, проверяем hasShipAt
+    if (!isEnemyBoard) {
+        currentAnim.isHit = hasShipAt(x, y); // В нас стреляют - мы знаем
+    } else {
+        currentAnim.isHit = false; // В врага стреляем - узнаем позже
+    }
 
     animTimer->start(16);
 }
@@ -318,15 +261,12 @@ void BoardWidget::drawExplosion(QPainter &p) {
     QColor color1 = currentAnim.isHit ? QColor(255, 200, 0) : QColor(100, 200, 255);
     QColor color2 = currentAnim.isHit ? QColor(255, 50, 0) : QColor(50, 100, 200);
     int radius = 5 + f * 2;
-    // Пиксельный взрыв (квадраты)
     p.setPen(Qt::NoPen);
     p.setBrush(color2);
     p.drawRect(pos.x() - radius, pos.y() - radius, radius*2, radius*2);
-
     int innerR = radius * 0.6;
     p.setBrush(color1);
     p.drawRect(pos.x() - innerR, pos.y() - innerR, innerR*2, innerR*2);
-
     if (f < 15) {
         p.setBrush(currentAnim.isHit ? Qt::black : Qt::white); int partDist = radius + 5;
         p.drawRect(pos.x() - partDist, pos.y() - partDist, 4, 4); p.drawRect(pos.x() + partDist, pos.y() - partDist, 4, 4);
@@ -365,9 +305,9 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         p.drawLine(0, i * cellSize, boardSize, i * cellSize);
     }
 
-    // Рисуем корабли
     for (Ship* s : myShips) {
         if (!s->isPlaced()) continue;
+        // Показываем корабли только если это наши, или они убиты, или включен режим отладки/конца игры
         if (showShips || s->isDestroyed()) {
             int w = (s->orientation == Orientation::Horizontal) ? s->size * cellSize : cellSize;
             int h = (s->orientation == Orientation::Vertical) ? s->size * cellSize : cellSize;
@@ -376,60 +316,45 @@ void BoardWidget::paintEvent(QPaintEvent *) {
         }
     }
 
-    // Рисуем попадания/промахи
     for(int x=0; x<10; ++x) {
         for(int y=0; y<10; ++y) {
             int cx = x * cellSize; int cy = y * cellSize;
             if (grid[x][y] == Miss) {
                 p.setBrush(Qt::black); p.setPen(Qt::NoPen);
-                // Квадратный "пиксельный" промах
                 p.drawRect(cx + cellSize/2 - 2, cy + cellSize/2 - 2, 4, 4);
             } else if (grid[x][y] == Hit) {
                 p.setPen(QPen(Qt::red, 3));
-                // Крестик тоже можно сделать более пиксельным, но линии ок
                 p.drawLine(cx + 4, cy + 4, cx + cellSize - 4, cy + cellSize - 4);
                 p.drawLine(cx + cellSize - 4, cy + 4, cx + 4, cy + cellSize - 4);
             }
         }
     }
 
-    // --- ОТРИСОВКА РАДАРА (МЕТКИ) ---
     if (highlightPos.x() >= 0 && highlightPos.y() >= 0) {
         int cx = highlightPos.x() * cellSize;
         int cy = highlightPos.y() * cellSize;
-
-        // Пульсирующая рамка или перекрестие
-        p.setPen(QPen(QColor(46, 204, 113), 3)); // Ярко-зеленый
-        p.setBrush(Qt::NoBrush);
-
-        // Уголки
+        p.setPen(QPen(QColor(46, 204, 113), 3)); p.setBrush(Qt::NoBrush);
         int len = cellSize / 3;
         p.drawLine(cx, cy, cx + len, cy); p.drawLine(cx, cy, cx, cy + len);
         p.drawLine(cx + cellSize, cy, cx + cellSize - len, cy); p.drawLine(cx + cellSize, cy, cx + cellSize, cy + len);
         p.drawLine(cx, cy + cellSize, cx + len, cy + cellSize); p.drawLine(cx, cy + cellSize, cx, cy + cellSize - len);
-        p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize - len, cy + cellSize);
-        p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize, cy + cellSize - len);
-
-        // Центр
+        p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize - len, cy + cellSize); p.drawLine(cx + cellSize, cy + cellSize, cx + cellSize, cy + cellSize - len);
         p.setPen(QPen(QColor(46, 204, 113, 100), 2));
         p.drawLine(cx + cellSize/2, cy + 5, cx + cellSize/2, cy + cellSize - 5);
         p.drawLine(cx + 5, cy + cellSize/2, cx + cellSize - 5, cy + cellSize/2);
     }
 
-    // --- ОТРИСОВКА КУРСОРА ---
     if (isActive && hoverX != -1 && hoverY != -1) {
         p.setPen(QPen(QColor(255, 0, 0), 2)); p.setBrush(Qt::NoBrush);
         int hx = hoverX * cellSize; int hy = hoverY * cellSize; int len = cellSize / 3;
         p.drawLine(hx, hy, hx + len, hy); p.drawLine(hx, hy, hx, hy + len);
         p.drawLine(hx + cellSize, hy, hx + cellSize - len, hy); p.drawLine(hx + cellSize, hy, hx + cellSize, hy + len);
         p.drawLine(hx, hy + cellSize, hx + len, hy + cellSize); p.drawLine(hx, hy + cellSize, hx, hy + cellSize - len);
-        p.drawLine(hx + cellSize, hy + cellSize, hx + cellSize - len, hy + cellSize);
-        p.drawLine(hx + cellSize, hy + cellSize, hx + cellSize, hy + cellSize - len);
+        p.drawLine(hx + cellSize, hy + cellSize, hx + cellSize - len, hy + cellSize); p.drawLine(hx + cellSize, hy + cellSize, hx + cellSize, hy + cellSize - len);
     }
 
-    // --- ТУМАН ВОЙНЫ ---
     if (isFoggy) {
-        p.fillRect(0, 0, boardSize, boardSize, QColor(200, 200, 200, 220)); // Плотный туман
+        p.fillRect(0, 0, boardSize, boardSize, QColor(200, 200, 200, 220));
         p.setPen(Qt::black);
         p.setFont(QFont("Courier New", 20, QFont::Bold));
         p.drawText(QRect(0, 0, boardSize, boardSize), Qt::AlignCenter, "ТУМАН");
@@ -446,10 +371,7 @@ void BoardWidget::paintEvent(QPaintEvent *) {
 
 int BoardWidget::receiveShot(int x, int y) {
     if (x < 0 || x >= 10 || y < 0 || y >= 10) return -1;
-
-    // Если уже стреляли, возвращаем -1, но если это Бот под Туманом,
-    // логика GameWindow просто проигнорирует результат или скажет "Мимо".
-    // BoardWidget хранит состояние.
+    // Если уже стреляли
     if (grid[x][y] != Empty && grid[x][y] != ShipCell) return -1;
 
     Ship* s = getShipAt(x, y);
@@ -459,14 +381,14 @@ int BoardWidget::receiveShot(int x, int y) {
         if (s->isDestroyed()) {
             markAroundDestroyed(s);
             update();
-            return 2;
+            return 2; // Убил
         }
         update();
-        return 1;
+        return 1; // Попал
     } else {
         grid[x][y] = Miss;
         update();
-        return 0;
+        return 0; // Мимо
     }
 }
 
@@ -514,7 +436,6 @@ void BoardWidget::dropEvent(QDropEvent *event) {
 void BoardWidget::mousePressEvent(QMouseEvent *event) {
     QPoint gridPos = getGridCoord(event->pos());
     int x = gridPos.x(); int y = gridPos.y();
-
     if (x == -1) return;
 
     if (!isEditable) {

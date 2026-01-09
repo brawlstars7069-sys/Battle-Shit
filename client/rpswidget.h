@@ -6,15 +6,13 @@
 #include <QTimer>
 #include <QPoint>
 
-// Типы выбора
 enum class RPSType { Rock, Paper, Scissors, None };
 
-// Класс отдельного элемента (Камень, Ножницы или Бумага)
 class RPSItem : public QWidget {
     Q_OBJECT
 public:
     explicit RPSItem(RPSType type, QWidget *parent = nullptr);
-    void setDisabledState(bool disabled); // Визуальное отключение
+    void setDisabledState(bool disabled);
 
 signals:
     void clicked(RPSType type);
@@ -40,18 +38,24 @@ private:
     void drawScissors(QPainter &p, int w, int h);
 };
 
-// Класс самого виджета мини-игры (Overlay)
 class RPSWidget : public QWidget {
     Q_OBJECT
 public:
     explicit RPSWidget(QWidget *parent = nullptr);
 
+    // Переключатель режима
+    void setMultiplayerMode(bool active);
+
+    // Методы для сетевого режима
+    void resolveRound(RPSType myChoice, RPSType oppChoice);
+
 signals:
-    void gameFinished(bool playerWon); // Сигнал завершения: true если игрок выиграл и ходит первым
+    void gameFinished(bool playerWon);
+    void choiceMade(RPSType choice);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override; // Чтобы всегда покрывать родителя
+    void resizeEvent(QResizeEvent *event) override;
 
 private slots:
     void onItemClicked(RPSType playerChoice);
@@ -64,11 +68,10 @@ private:
     RPSItem *itemPaper;
     RPSItem *itemScissors;
 
-    // Для отображения выбора бота
-    RPSType botChoice;
-    bool showResult;
+    bool isMultiplayerMode; // Флаг режима
 
-    void processRound(RPSType playerChoice);
+    void processBotRound(RPSType playerChoice); // Для одиночной игры
+    void showOutcome(int result);
 };
 
 #endif // RPSWIDGET_H

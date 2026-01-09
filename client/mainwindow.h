@@ -13,7 +13,10 @@
 #include <QScrollArea>
 #include <QGridLayout>
 #include <QListWidget>
+#include <QInputDialog>
 #include "loginwindow.h"
+#include "createserverdialog.h"
+#include "networkclient.h"
 
 class GameWindow;
 
@@ -51,17 +54,27 @@ private slots:
     void onBackFromMultiplayerClicked();
     void onCreateServerClicked();
     void onConnectClicked();
-
-    // Слот для успешной регистрации
     void onRegistrationFinished();
+
+    // UI слоты
+    void onServerCreatedUI(const QString &name, const QString &password);
+    void onCancelWaiting();
+
+    // Сетевые слоты (Ответы от сервера)
+    void onNetworkConnected();
+    void onNetworkError(const QString &msg);
+    void onLobbyCreated(const QString &gameId);
+    void onJoinedLobby(const QString &gameId);
+    void onPlayerJoinedMyLobby(const QString &playerName);
+    void onGameError(const QString &msg);
 
 private:
     void setupUI();
     void setupMenuContainer();
     void setupSettingsContainer();
     void setupMultiplayerContainer();
+    void setupWaitingLobby();
 
-    // Метод для запуска анимации мультиплеера (выделил отдельно)
     void startMultiplayerAnimation();
 
     QPoint mousePos;
@@ -70,12 +83,20 @@ private:
     QWidget *settingsContainer;
     QWidget *multiplayerContainer;
 
+    QWidget *waitingLobbyWidget;
+    QLabel *waitingStatusLabel;
+
+    // Элементы для копирования ID
+    QLineEdit *gameIdDisplay;
+
     QWidget *avatarSelectionWidget;
     QPushButton *btnChangeAvatar;
     QLabel *currentAvatarPreview;
     QListWidget *serverListWidget;
 
     QString selectedAvatarPath;
+    // Сохраняем логин игрока, чтобы отправить его на сервер
+    QString currentPlayerName;
 
     float backgroundOffset;
     float backgroundOffsetY;
@@ -86,8 +107,10 @@ private:
     QPropertyAnimation *animSettings;
     QPropertyAnimation *animMultiplayer;
 
-    // Окно регистрации и флаг статуса
     LoginWindow *loginWindow;
+    CreateServerDialog *createServerDialog;
+
+    NetworkClient *netClient;
     bool isUserRegistered;
 };
 

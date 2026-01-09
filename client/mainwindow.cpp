@@ -5,9 +5,11 @@
 #include <QPainter>
 #include <cmath>
 #include <QDebug>
+#include <QClipboard>
+#include "multiplayergamewindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), backgroundOffset(0), backgroundOffsetY(0), isUserRegistered(false)
+    : QMainWindow(parent), backgroundOffset(0), backgroundOffsetY(0), isUserRegistered(false), currentPlayerName("Player")
 {
     setObjectName("menuWindow");
 
@@ -22,14 +24,25 @@ MainWindow::MainWindow(QWidget *parent)
         file.close();
     }
 
+    // Инициализация сети
+    netClient = new NetworkClient(this);
+    connect(netClient, &NetworkClient::connected, this, &MainWindow::onNetworkConnected);
+    connect(netClient, &NetworkClient::errorOccurred, this, &MainWindow::onNetworkError);
+    // Подключаем новые сигналы
+    connect(netClient, &NetworkClient::lobbyCreated, this, &MainWindow::onLobbyCreated);
+    connect(netClient, &NetworkClient::joinedLobby, this, &MainWindow::onJoinedLobby);
+    connect(netClient, &NetworkClient::playerJoined, this, &MainWindow::onPlayerJoinedMyLobby);
+    connect(netClient, &NetworkClient::gameError, this, &MainWindow::onGameError);
+
     setupUI();
     setWindowTitle("Морской Бой - 8-BIT EDITION");
 
-    // Инициализация окна регистрации
-    loginWindow = new LoginWindow(nullptr); // nullptr, чтобы окно было независимым
+    loginWindow = new LoginWindow(nullptr);
     connect(loginWindow, &LoginWindow::registrationSuccessful, this, &MainWindow::onRegistrationFinished);
 
-    // ЗАПУСК ВО ВЕСЬ ЭКРАН
+    createServerDialog = new CreateServerDialog(nullptr);
+    connect(createServerDialog, &CreateServerDialog::serverCreated, this, &MainWindow::onServerCreatedUI);
+
     showFullScreen();
 }
 
@@ -61,11 +74,80 @@ void MainWindow::setupUI()
     setupMenuContainer();
     setupSettingsContainer();
     setupMultiplayerContainer();
+    setupWaitingLobby();
 
-    // Исходные позиции
     menuContainer->move(0, 0);
     settingsContainer->move(-width(), 0);
     multiplayerContainer->move(0, height());
+
+    if(waitingLobbyWidget) waitingLobbyWidget->hide();
+}
+
+void MainWindow::setupWaitingLobby() {
+    waitingLobbyWidget = new QWidget(this);
+    waitingLobbyWidget->setStyleSheet("background-color: rgba(0, 0, 0, 200);");
+    waitingLobbyWidget->hide();
+
+    QVBoxLayout *layout = new QVBoxLayout(waitingLobbyWidget);
+    layout->setAlignment(Qt::AlignCenter);
+
+    QWidget *panel = new QWidget(waitingLobbyWidget);
+    panel->setFixedSize(500, 350);
+    panel->setStyleSheet(
+        "background-color: #f0e6d2; "
+        "border: 4px solid #2c3e50; "
+        "border-radius: 0px;"
+        );
+
+    QVBoxLayout *panelLayout = new QVBoxLayout(panel);
+    panelLayout->setSpacing(15);
+
+    QLabel *title = new QLabel("ОЖИДАНИЕ ИГРОКА...", panel);
+    title->setAlignment(Qt::AlignCenter);
+    title->setStyleSheet("font-size: 24px; font-weight: bold; color: #333; border: none; background: transparent;");
+
+    waitingStatusLabel = new QLabel("Создание комнаты на сервере...", panel);
+    waitingStatusLabel->setAlignment(Qt::AlignCenter);
+    waitingStatusLabel->setWordWrap(true);
+    waitingStatusLabel->setStyleSheet("font-size: 16px; color: #555; border: none; background: transparent;");
+
+    // Поле для отображения ID игры (чтобы копировать)
+    gameIdDisplay = new QLineEdit(panel);
+    gameIdDisplay->setReadOnly(true);
+    gameIdDisplay->setPlaceholderText("ID Игры появится здесь");
+    gameIdDisplay->setStyleSheet("background: #fff; padding: 5px; font-size: 12px; color: #333; border: 1px dashed #555;");
+    gameIdDisplay->setAlignment(Qt::AlignCenter);
+
+    QPushButton *btnCopy = new QPushButton("СКОПИРОВАТЬ ID", panel);
+    btnCopy->setCursor(Qt::PointingHandCursor);
+    btnCopy->setStyleSheet("background-color: #3498db; color: white; border: none; padding: 5px;");
+    connect(btnCopy, &QPushButton::clicked, this, [=](){
+        QApplication::clipboard()->setText(gameIdDisplay->text());
+        btnCopy->setText("СКОПИРОВАНО!");
+        QTimer::singleShot(1000, [=](){ btnCopy->setText("СКОПИРОВАТЬ ID"); });
+    });
+
+    QLabel *loadingIcon = new QLabel("⏳", panel);
+    loadingIcon->setAlignment(Qt::AlignCenter);
+    loadingIcon->setStyleSheet("font-size: 48px; border: none; background: transparent;");
+
+    QPushButton *btnCancel = new QPushButton("ОТМЕНИТЬ И ВЫЙТИ", panel);
+    btnCancel->setCursor(Qt::PointingHandCursor);
+    btnCancel->setStyleSheet(
+        "QPushButton { background-color: #c0392b; color: white; padding: 10px; font-weight: bold; border: 2px solid #922b21; }"
+        "QPushButton:hover { background-color: #e74c3c; }"
+        );
+    connect(btnCancel, &QPushButton::clicked, this, &MainWindow::onCancelWaiting);
+
+    panelLayout->addWidget(title);
+    panelLayout->addWidget(waitingStatusLabel);
+    panelLayout->addWidget(gameIdDisplay);
+    panelLayout->addWidget(btnCopy);
+    panelLayout->addWidget(loadingIcon);
+    panelLayout->addStretch();
+    panelLayout->addWidget(btnCancel);
+
+    layout->addWidget(panel);
 }
 
 void MainWindow::setupMenuContainer() {
@@ -224,7 +306,7 @@ void MainWindow::setupMultiplayerContainer() {
     btnBack->setStyleSheet("background-color: #c0392b; color: white;");
     connect(btnBack, &QPushButton::clicked, this, &MainWindow::onBackFromMultiplayerClicked);
 
-    QLabel *title = new QLabel("СПИСОК СЕРВЕРОВ", multiplayerContainer);
+    QLabel *title = new QLabel("МУЛЬТИПЛЕЕР", multiplayerContainer);
     title->setStyleSheet("font-size: 24px; font-weight: bold; color: #333;");
     title->setAlignment(Qt::AlignCenter);
 
@@ -240,7 +322,7 @@ void MainWindow::setupMultiplayerContainer() {
     QHBoxLayout *actionsLayout = new QHBoxLayout();
     actionsLayout->setSpacing(20);
 
-    QPushButton *btnCreate = new QPushButton("СОЗДАТЬ СЕРВЕР", multiplayerContainer);
+    QPushButton *btnCreate = new QPushButton("СОЗДАТЬ ИГРУ", multiplayerContainer);
     btnCreate->setStyleSheet("background-color: #27ae60; color: white; min-width: 150px;");
 
     QPushButton *btnConnect = new QPushButton("ПОДКЛЮЧИТЬСЯ", multiplayerContainer);
@@ -266,9 +348,9 @@ void MainWindow::setupMultiplayerContainer() {
         "QListWidget::item:selected { background-color: #3498db; color: white; }"
         );
 
-    serverListWidget->addItem("Server #1 - [Map: Classic] - (1/2)");
-    serverListWidget->addItem("Server #2 - [Map: Foggy] - (0/2)");
-    serverListWidget->addItem("MegaBattle 2025 - (WAITING)");
+    serverListWidget->addItem("Сервер не поддерживает список игр.");
+    serverListWidget->addItem("Чтобы играть, создайте игру и");
+    serverListWidget->addItem("передайте ID другу.");
 
     mainLayout->addLayout(topLayout);
     mainLayout->addSpacing(20);
@@ -282,6 +364,10 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 
     if (avatarSelectionWidget) {
         avatarSelectionWidget->resize(s);
+    }
+
+    if (waitingLobbyWidget) {
+        waitingLobbyWidget->resize(s);
     }
 
     if (menuContainer->pos() == QPoint(0,0)) {
@@ -449,14 +535,18 @@ void MainWindow::onBackFromSettingsClicked() {
 // --- МУЛЬТИПЛЕЕР И ВХОД ---
 
 void MainWindow::onMultiplayerClicked() {
-    // ПРОВЕРКА РЕГИСТРАЦИИ
     if (!isUserRegistered) {
-        // Если не вошел - показываем окно входа и прерываем анимацию
         loginWindow->show();
-        // Можно сделать модальным, чтобы пользователь не мог кликать в главное меню
         loginWindow->raise();
         loginWindow->activateWindow();
         return;
+    }
+
+    // Подключение к серверу
+    if (!netClient->isConnected()) {
+        // Порт 8888 (стандартный для примера), IP локальный
+        // В реальном проекте можно вынести в настройки
+        netClient->connectToServer("26.78.112.74", 8888);
     }
 
     startMultiplayerAnimation();
@@ -490,8 +580,11 @@ void MainWindow::startMultiplayerAnimation() {
 }
 
 void MainWindow::onRegistrationFinished() {
-    // Вызывается сигналом из LoginWindow при успешном входе
     isUserRegistered = true;
+    currentPlayerName = "Player"; // В идеале брать из LoginWindow, но пока так
+    if (!netClient->isConnected()) {
+        netClient->connectToServer("26.78.112.74", 8888);
+    }
     startMultiplayerAnimation();
 }
 
@@ -519,19 +612,94 @@ void MainWindow::onBackFromMultiplayerClicked() {
     animBackgroundY->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
-void MainWindow::onCreateServerClicked() {
-    QMessageBox::information(this, "Сервер", "Создание сервера пока недоступно.");
+void MainWindow::onNetworkConnected() {
+    // Тихое успешное подключение
+    qDebug() << "Connected to server!";
 }
 
+void MainWindow::onNetworkError(const QString &msg) {
+    QMessageBox::warning(this, "Ошибка сети", "Нет связи с сервером (127.0.0.1:8888).\n" + msg);
+}
+
+// --- СОЗДАНИЕ ИГРЫ ---
+void MainWindow::onCreateServerClicked() {
+    // Открываем диалог ввода названия (для красоты, сервер его игнорирует)
+    createServerDialog->show();
+    createServerDialog->raise();
+    createServerDialog->activateWindow();
+}
+
+void MainWindow::onServerCreatedUI(const QString &name, const QString &password) {
+    // Пользователь нажал "Создать" в диалоге
+    // Сервер ожидает имя игрока в data, а не название комнаты.
+    // Название комнаты генерируется сервером (GUID).
+
+    waitingStatusLabel->setText("Отправка запроса на сервер...");
+    gameIdDisplay->setText("...");
+    waitingLobbyWidget->show();
+    waitingLobbyWidget->raise();
+
+    // Отправляем запрос создания
+    netClient->createLobby(currentPlayerName);
+}
+
+void MainWindow::onLobbyCreated(const QString &gameId) {
+    waitingStatusLabel->setText("Комната создана!\nСообщите этот ID другу для подключения:");
+    gameIdDisplay->setText(gameId);
+}
+
+void MainWindow::onPlayerJoinedMyLobby(const QString &playerName) {
+    // Игрок подключился к нам (мы Хост)
+    waitingLobbyWidget->hide();
+
+    // Запускаем мультиплеерное окно как ХОСТ
+    MultiplayerGameWindow *game = new MultiplayerGameWindow(netClient, true, selectedAvatarPath);
+    this->hide();
+    connect(game, &MultiplayerGameWindow::backToMenu, this, [=]() {
+        this->show();
+    });
+    game->setAttribute(Qt::WA_DeleteOnClose);
+    game->show();
+}
+
+// --- ПОДКЛЮЧЕНИЕ ---
 void MainWindow::onConnectClicked() {
-    if (serverListWidget->currentItem()) {
-        QString serverName = serverListWidget->currentItem()->text();
-        QMessageBox::information(this, "Подключение", "Попытка подключения к: " + serverName);
-    } else {
-        QMessageBox::warning(this, "Ошибка", "Выберите сервер из списка!");
+    // Так как списка игр нет, просим ID
+    bool ok;
+    QString gameId = QInputDialog::getText(this, "Подключение",
+                                           "Введите ID игры (получите его у создателя):", QLineEdit::Normal,
+                                           "", &ok);
+    if (ok && !gameId.isEmpty()) {
+        netClient->joinLobby(gameId.trimmed());
     }
 }
 
+void MainWindow::onJoinedLobby(const QString &gameId) {
+    // Мы подключились к кому-то (мы Гость)
+
+    // Запускаем мультиплеерное окно как ГОСТЬ
+    MultiplayerGameWindow *game = new MultiplayerGameWindow(netClient, false, selectedAvatarPath);
+    this->hide();
+    connect(game, &MultiplayerGameWindow::backToMenu, this, [=]() {
+        this->show();
+    });
+    game->setAttribute(Qt::WA_DeleteOnClose);
+    game->show();
+}
+
+void MainWindow::onGameError(const QString &msg) {
+    QMessageBox::warning(this, "Ошибка сервера", msg);
+    // Если ошибка произошла во время ожидания (например, не удалось создать), скрываем лобби
+    if (msg.contains("not found") || msg.contains("Error")) {
+        // можно закрыть лобби, если оно открыто
+    }
+}
+
+void MainWindow::onCancelWaiting() {
+    waitingLobbyWidget->hide();
+}
+
+// --- ПРОЧЕЕ ---
 void MainWindow::onChangeAvatarClicked() {
     if (avatarSelectionWidget->isVisible()) {
         avatarSelectionWidget->hide();
